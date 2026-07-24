@@ -350,9 +350,9 @@ with tab2:
     st.subheader("📅 Weekly Predictions")
     st.markdown("Enter this week's matchups and get predictions for all games at once.")
 
-    st.info("Add up to 8 matchups below:")
+    st.info("Add up to 16 matchups below:")
 
-    num_games = st.slider("How many games?", min_value=1, max_value=8, value=4)
+    num_games = st.slider("How many games?", min_value=1, max_value=16, value=4)
 
     all_teams_list = sorted(list(set(scores['team_home'].unique()) | set(scores['team_away'].unique())))
 
