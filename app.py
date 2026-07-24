@@ -169,6 +169,35 @@ if st.button("🔮 Predict Game Outcome", use_container_width=True):
         )
         st.plotly_chart(fig_prob, use_container_width=True)
 
+        # ✅ Win probability gauge
+        st.subheader("🎯 Win Probability Gauge")
+        fig_gauge = go.Figure(go.Indicator(
+            mode="gauge+number",
+            value=home_prob * 100,
+            title={"text": f"{home_team} Win Probability", "font": {"color": "white"}},
+            gauge={
+                "axis": {"range": [0, 100], "tickcolor": "white"},
+                "bar": {"color": "#013369"},
+                "bgcolor": "#0a0a0a",
+                "steps": [
+                    {"range": [0, 50], "color": "#D50A0A"},
+                    {"range": [50, 100], "color": "#013369"},
+                ],
+                "threshold": {
+                    "line": {"color": "white", "width": 4},
+                    "thickness": 0.75,
+                    "value": 50
+                }
+            },
+            number={"suffix": "%", "font": {"color": "white"}}
+        ))
+        fig_gauge.update_layout(
+            paper_bgcolor="#0a0a0a",
+            font=dict(color="white"),
+            height=300
+        )
+        st.plotly_chart(fig_gauge, use_container_width=True)
+
         # ✅ Team stats comparison
         st.markdown("---")
         st.subheader("📈 Team Stats Comparison")
