@@ -5,6 +5,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 from xgboost import XGBClassifier
+import plotly.graph_objects as go
 
 # ✅ Page config
 st.set_page_config(
@@ -146,6 +147,28 @@ if st.button("🔮 Predict Game Outcome", use_container_width=True):
         else:
             st.success(f"🏆 Predicted Winner: **{away_team}** ({away_prob:.1%} probability)")
 
+        # ✅ Win probability bar chart
+        st.markdown("---")
+        st.subheader("📊 Win Probability")
+        fig_prob = go.Figure(go.Bar(
+            x=[f"🏠 {home_team}", f"✈️ {away_team}"],
+            y=[home_prob * 100, away_prob * 100],
+            marker_color=["#013369", "#D50A0A"],
+            text=[f"{home_prob:.1%}", f"{away_prob:.1%}"],
+            textposition="outside",
+            textfont=dict(color="white", size=16)
+        ))
+        fig_prob.update_layout(
+            plot_bgcolor="#0a0a0a",
+            paper_bgcolor="#0a0a0a",
+            font=dict(color="white"),
+            yaxis=dict(title="Win Probability (%)", range=[0, 100], gridcolor="#333"),
+            xaxis=dict(gridcolor="#333"),
+            showlegend=False,
+            height=350
+        )
+        st.plotly_chart(fig_prob, use_container_width=True)
+
         # ✅ Team stats comparison
         st.markdown("---")
         st.subheader("📈 Team Stats Comparison")
@@ -156,6 +179,43 @@ if st.button("🔮 Predict Game Outcome", use_container_width=True):
             away_team: [f"{away_wr:.1%}", f"{away_scored:.1f}", f"{away_conceded:.1f}"]
         })
         st.table(stats_df)
+
+        # ✅ Team stats bar chart
+        st.subheader("📊 Stats Comparison Chart")
+        categories = ['Win Rate (%)', 'Avg Points Scored', 'Avg Points Conceded']
+        home_values = [home_wr * 100, home_scored, home_conceded]
+        away_values = [away_wr * 100, away_scored, away_conceded]
+
+        fig_stats = go.Figure()
+        fig_stats.add_trace(go.Bar(
+            name=f"🏠 {home_team}",
+            x=categories,
+            y=home_values,
+            marker_color="#013369",
+            text=[f"{v:.1f}" for v in home_values],
+            textposition="outside",
+            textfont=dict(color="white")
+        ))
+        fig_stats.add_trace(go.Bar(
+            name=f"✈️ {away_team}",
+            x=categories,
+            y=away_values,
+            marker_color="#D50A0A",
+            text=[f"{v:.1f}" for v in away_values],
+            textposition="outside",
+            textfont=dict(color="white")
+        ))
+        fig_stats.update_layout(
+            barmode="group",
+            plot_bgcolor="#0a0a0a",
+            paper_bgcolor="#0a0a0a",
+            font=dict(color="white"),
+            yaxis=dict(gridcolor="#333"),
+            xaxis=dict(gridcolor="#333"),
+            legend=dict(font=dict(color="white")),
+            height=400
+        )
+        st.plotly_chart(fig_stats, use_container_width=True)
 
 # ✅ Footer
 st.markdown("---")
