@@ -52,6 +52,7 @@ def load_model():
     scores = pd.read_csv('data/spreadspoke_scores.csv')
     scores = scores[(scores['score_home'] > 0) | (scores['score_away'] > 0)]
     scores['home_win'] = (scores['score_home'] > scores['score_away']).astype(int)
+    scores['schedule_date'] = pd.to_datetime(scores['schedule_date'])
     scores = scores.sort_values('schedule_season')
     scores = scores[scores['schedule_season'] >= 1990].copy()
 
@@ -105,6 +106,7 @@ def get_recent_form(scores, team, n=5):
     away_games['result'] = away_games.apply(lambda r: f"✅ W {int(r['score_away'])}-{int(r['score_home'])} @ {r['team_home']}" if r['win'] else f"❌ L {int(r['score_away'])}-{int(r['score_home'])} @ {r['team_home']}", axis=1)
 
     all_games = pd.concat([home_games[['schedule_date', 'result', 'win']], away_games[['schedule_date', 'result', 'win']]])
+    all_games['schedule_date'] = pd.to_datetime(all_games['schedule_date'])
     all_games = all_games.sort_values('schedule_date', ascending=False).head(n)
     return all_games
 
