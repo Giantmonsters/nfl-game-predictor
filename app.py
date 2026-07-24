@@ -108,7 +108,7 @@ def get_recent_form(scores, team, n=5):
     home_games['win'] = home_games['score_home'] > home_games['score_away']
     home_games['result'] = home_games.apply(lambda r: f"✅ W {int(r['score_home'])}-{int(r['score_away'])} vs {r['team_away']}" if r['win'] else f"❌ L {int(r['score_home'])}-{int(r['score_away'])} vs {r['team_away']}", axis=1)
 
-    away_games = scores[scores['team_away'] == team][['schedule_date', 'team_home', 'team_away', 'score_home', 'score_away']].copy()
+    away_games = scores[scores['team_away'] == team][['schedule_date', 'team_home', 'team_away','score_home', 'score_away']].copy()
     away_games['win'] = away_games['score_away'] > away_games['score_home']
     away_games['result'] = away_games.apply(lambda r: f"✅ W {int(r['score_away'])}-{int(r['score_home'])} @ {r['team_home']}" if r['win'] else f"❌ L {int(r['score_away'])}-{int(r['score_home'])} @ {r['team_home']}", axis=1)
 
@@ -150,7 +150,6 @@ st.success(f"Model loaded! Accuracy: {accuracy:.1%}")
 tab1, tab2, tab3 = st.tabs(["🔮 Predict", "📅 Weekly Predictions", "ℹ️ How It Works"])
 
 with tab1:
-    # ✅ Get list of teams
     all_teams = sorted(list(set(scores['team_home'].unique()) | set(scores['team_away'].unique())))
 
     st.markdown("---")
@@ -230,35 +229,6 @@ with tab1:
             )
             st.plotly_chart(fig_prob, use_container_width=True)
 
-            # ✅ Win probability gauge
-            st.subheader("🎯 Win Probability Gauge")
-            fig_gauge = go.Figure(go.Indicator(
-                mode="gauge+number",
-                value=home_prob * 100,
-                title={"text": f"{home_team} Win Probability", "font": {"color": "white"}},
-                gauge={
-                    "axis": {"range": [0, 100], "tickcolor": "white"},
-                    "bar": {"color": "#013369"},
-                    "bgcolor": "#0a0a0a",
-                    "steps": [
-                        {"range": [0, 50], "color": "#D50A0A"},
-                        {"range": [50, 100], "color": "#013369"},
-                    ],
-                    "threshold": {
-                        "line": {"color": "white", "width": 4},
-                        "thickness": 0.75,
-                        "value": 50
-                    }
-                },
-                number={"suffix": "%", "font": {"color": "white"}}
-            ))
-            fig_gauge.update_layout(
-                paper_bgcolor="#0a0a0a",
-                font=dict(color="white"),
-                height=300
-            )
-            st.plotly_chart(fig_gauge, use_container_width=True)
-
             # ✅ Head to head
             st.markdown("---")
             st.subheader("⚔️ Head to Head Record")
@@ -298,62 +268,12 @@ with tab1:
                 for _, row in away_form.iterrows():
                     st.markdown(row['result'])
 
-            # ✅ Team stats comparison
-            st.markdown("---")
-            st.subheader("📈 Team Stats Comparison")
-            stats_df = pd.DataFrame({
-                'Stat': ['Win Rate', 'Avg Points Scored', 'Avg Points Conceded'],
-                home_team: [f"{home_wr:.1%}", f"{home_scored:.1f}", f"{home_conceded:.1f}"],
-                away_team: [f"{away_wr:.1%}", f"{away_scored:.1f}", f"{away_conceded:.1f}"]
-            })
-            st.table(stats_df)
-
-            # ✅ Team stats bar chart
-            st.subheader("📊 Stats Comparison Chart")
-            categories = ['Win Rate (%)', 'Avg Points Scored', 'Avg Points Conceded']
-            home_values = [home_wr * 100, home_scored, home_conceded]
-            away_values = [away_wr * 100, away_scored, away_conceded]
-
-            fig_stats = go.Figure()
-            fig_stats.add_trace(go.Bar(
-                name=f"🏠 {home_team}",
-                x=categories,
-                y=home_values,
-                marker_color="#013369",
-                text=[f"{v:.1f}" for v in home_values],
-                textposition="outside",
-                textfont=dict(color="white")
-            ))
-            fig_stats.add_trace(go.Bar(
-                name=f"✈️ {away_team}",
-                x=categories,
-                y=away_values,
-                marker_color="#D50A0A",
-                text=[f"{v:.1f}" for v in away_values],
-                textposition="outside",
-                textfont=dict(color="white")
-            ))
-            fig_stats.update_layout(
-                barmode="group",
-                plot_bgcolor="#0a0a0a",
-                paper_bgcolor="#0a0a0a",
-                font=dict(color="white"),
-                yaxis=dict(gridcolor="#333"),
-                xaxis=dict(gridcolor="#333"),
-                legend=dict(font=dict(color="white")),
-                height=400
-            )
-            st.plotly_chart(fig_stats, use_container_width=True)
-
 with tab2:
-    # ✅ Weekly predictions
     st.subheader("📅 Weekly Predictions")
     st.markdown("Enter this week's matchups and get predictions for all games at once.")
-
     st.info("Add up to 16 matchups below:")
 
     num_games = st.slider("How many games?", min_value=1, max_value=16, value=4)
-
     all_teams_list = sorted(list(set(scores['team_home'].unique()) | set(scores['team_away'].unique())))
 
     matchups = []
@@ -392,7 +312,6 @@ with tab2:
             st.markdown(f"{conf} **{h}** vs **{a}** → 🏆 **{winner}** ({win_prob:.1%})")
 
 with tab3:
-    # ✅ How it works
     st.subheader("ℹ️ How The Model Works")
     st.markdown("""
     ### The Data
