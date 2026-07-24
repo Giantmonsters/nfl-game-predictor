@@ -94,6 +94,20 @@ def load_model():
 
     return xgb, scores, get_team_stats, acc
 
+# ✅ Get recent form for a team
+def get_recent_form(scores, team, n=5):
+    home_games = scores[scores['team_home'] == team][['schedule_date', 'team_home', 'team_away', 'score_home', 'score_away']].copy()
+    home_games['win'] = home_games['score_home'] > home_games['score_away']
+    home_games['result'] = home_games.apply(lambda r: f"✅ W {int(r['score_home'])}-{int(r['score_away'])} vs {r['team_away']}" if r['win'] else f"❌ L {int(r['score_home'])}-{int(r['score_away'])} vs {r['team_away']}", axis=1)
+
+    away_games = scores[scores['team_away'] == team][['schedule_date', 'team_home', 'team_away', 'score_home', 'score_away']].copy()
+    away_games['win'] = away_games['score_away'] > away_games['score_home']
+    away_games['result'] = away_games.apply(lambda r: f"✅ W {int(r['score_away'])}-{int(r['score_home'])} @ {r['team_home']}" if r['win'] else f"❌ L {int(r['score_away'])}-{int(r['score_home'])} @ {r['team_home']}", axis=1)
+
+    all_games = pd.concat([home_games[['schedule_date', 'result', 'win']], away_games[['schedule_date', 'result', 'win']]])
+    all_games = all_games.sort_values('schedule_date', ascending=False).head(n)
+    return all_games
+
 # ✅ Load model
 with st.spinner('Loading model... this may take a minute on first load!'):
     xgb, scores, get_team_stats, accuracy = load_model()
@@ -197,6 +211,23 @@ if st.button("🔮 Predict Game Outcome", use_container_width=True):
             height=300
         )
         st.plotly_chart(fig_gauge, use_container_width=True)
+
+        # ✅ Recent form
+        st.markdown("---")
+        st.subheader("📅 Recent Form (Last 5 Games)")
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown(f"**🏠 {home_team}**")
+            home_form = get_recent_form(scores, home_team)
+            for _, row in home_form.iterrows():
+                st.markdown(row['result'])
+
+        with col2:
+            st.markdown(f"**✈️ {away_team}**")
+            away_form = get_recent_form(scores, away_team)
+            for _, row in away_form.iterrows():
+                st.markdown(row['result'])
 
         # ✅ Team stats comparison
         st.markdown("---")
