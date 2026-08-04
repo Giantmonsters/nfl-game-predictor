@@ -16,36 +16,36 @@ st.set_page_config(
 
 # ✅ NFL colour styling
 st.markdown("""
-    <style>
-    .stApp {
-        background-color: #0a0a0a;
-        color: white;
-    }
-    .stButton > button {
-        background-color: #D50A0A;
-        color: white;
-        font-size: 18px;
-        font-weight: bold;
-        border: none;
-        border-radius: 8px;
-    }
-    .stButton > button:hover {
-        background-color: #013369;
-    }
-    .stSelectbox label {
-        color: white;
-        font-weight: bold;
-    }
-    h1, h2, h3 {
-        color: white;
-    }
-    .nflnerd-brand {
-        font-size: 14px;
-        color: #D50A0A;
-        font-weight: bold;
-        letter-spacing: 2px;
-    }
-    </style>
+<style>
+.stApp {
+    background-color: #0a0a0a;
+    color: white;
+}
+.stButton > button {
+    background-color: #D50A0A;
+    color: white;
+    font-size: 18px;
+    font-weight: bold;
+    border: none;
+    border-radius: 8px;
+}
+.stButton > button:hover {
+    background-color: #013369;
+}
+.stSelectbox label {
+    color: white;
+    font-weight: bold;
+}
+h1, h2, h3 {
+    color: white;
+}
+.nflnerd-brand {
+    font-size: 14px;
+    color: #D50A0A;
+    font-weight: bold;
+    letter-spacing: 2px;
+}
+</style>
 """, unsafe_allow_html=True)
 
 # ✅ NFLNerd Branding
@@ -58,6 +58,19 @@ st.markdown("Predict the outcome of any NFL matchup using machine learning train
 def load_model():
     scores = pd.read_csv('data/spreadspoke_scores.csv')
     scores = scores[(scores['score_home'] > 0) | (scores['score_away'] > 0)]
+
+    # Rename relocated teams
+    scores['team_home'] = scores['team_home'].replace({
+        'Oakland Raiders': 'Las Vegas Raiders',
+        'St. Louis Rams': 'Los Angeles Rams',
+        'San Diego Chargers': 'Los Angeles Chargers'
+    })
+    scores['team_away'] = scores['team_away'].replace({
+        'Oakland Raiders': 'Las Vegas Raiders',
+        'St. Louis Rams': 'Los Angeles Rams',
+        'San Diego Chargers': 'Los Angeles Chargers'
+    })
+
     scores['home_win'] = (scores['score_home'] > scores['score_away']).astype(int)
     scores['schedule_date'] = pd.to_datetime(scores['schedule_date'])
     scores = scores.sort_values('schedule_season')
@@ -94,6 +107,7 @@ def load_model():
     df_features = pd.DataFrame(game_data).dropna()
     X = df_features.drop('home_win', axis=1)
     y = df_features['home_win']
+
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
     xgb = XGBClassifier(n_estimators=100, random_state=42, eval_metric='logloss')
@@ -164,6 +178,7 @@ with tab1:
         away_team = st.selectbox("Select away team", all_teams, index=all_teams.index("Philadelphia Eagles") if "Philadelphia Eagles" in all_teams else 1)
 
     st.markdown("---")
+
     if st.button("🔮 Predict Game Outcome", use_container_width=True):
         if home_team == away_team:
             st.error("Please select two different teams!")
@@ -210,6 +225,7 @@ with tab1:
             # ✅ Win probability bar chart
             st.markdown("---")
             st.subheader("📊 Win Probability")
+
             fig_prob = go.Figure(go.Bar(
                 x=[f"🏠 {home_team}", f"✈️ {away_team}"],
                 y=[home_prob * 100, away_prob * 100],
@@ -233,6 +249,7 @@ with tab1:
             st.markdown("---")
             st.subheader("⚔️ Head to Head Record")
             h2h_wins, h2h_losses, h2h_total = get_head_to_head(scores, home_team, away_team)
+
             if h2h_total == 0:
                 st.write("No head to head record found.")
             else:
@@ -254,8 +271,8 @@ with tab1:
             # ✅ Recent form
             st.markdown("---")
             st.subheader("📅 Recent Form (Last 5 Games)")
-            col1, col2 = st.columns(2)
 
+            col1, col2 = st.columns(2)
             with col1:
                 st.markdown(f"**🏠 {home_team}**")
                 home_form = get_recent_form(scores, home_team)
@@ -288,10 +305,11 @@ with tab2:
 
     if st.button("🔮 Predict All Games", use_container_width=True):
         st.markdown("---")
-        for h, a in matchups:
+        for i, (h, a) in enumerate(matchups):
             if h == a:
-                st.warning(f"Skipping — same team selected for both sides")
+                st.warning(f"Game {i+1}: Skipping — same team selected for both sides")
                 continue
+
             h_wr, h_scored, h_conceded = get_team_stats(scores, h, 2026)
             a_wr, a_scored, a_conceded = get_team_stats(scores, a, 2026)
             feats = [[h_wr, a_wr, h_scored, a_scored, h_conceded, a_conceded]]
@@ -314,49 +332,57 @@ with tab2:
 with tab3:
     st.subheader("ℹ️ How The Model Works")
     st.markdown("""
-    ### The Data
-    This model is trained on **9,455 NFL games** from 1990 to 2025, sourced from the NFL scores and betting dataset on Kaggle.
+### The Data
 
-    ### The Features
-    For each game, the model uses 6 features:
-    - 🏠 **Home team win rate** — historical win % for the home team
-    - ✈️ **Away team win rate** — historical win % for the away team
-    - 🏈 **Home team avg points scored** — average points scored per game
-    - 🏈 **Away team avg points scored** — average points scored per game
-    - 🛡️ **Home team avg points conceded** — average points conceded per game
-    - 🛡️ **Away team avg points conceded** — average points conceded per game
+This model is trained on **9,455 NFL games** from 1990 to 2025, sourced from the NFL scores and betting dataset on Kaggle.
 
-    ### The Model
-    We compared three machine learning models:
-    | Model | Accuracy |
-    |-------|----------|
-    | Logistic Regression | 57.4% |
-    | Random Forest | 57.6% |
-    | **XGBoost** ✅ | **58.4%** |
+### The Features
 
-    **XGBoost** was chosen as the best performing model.
+For each game, the model uses 6 features:
 
-    ### What Does 58.4% Mean?
-    - Random guessing = 50%
-    - Our model = 58.4%
-    - Professional betting models = 60-65%
-    - Nobody consistently exceeds 65% — NFL is unpredictable!
+- 🏠 **Home team win rate** — historical win % for the home team
+- ✈️ **Away team win rate** — historical win % for the away team
+- 🏈 **Home team avg points scored** — average points scored per game
+- 🏈 **Away team avg points scored** — average points scored per game
+- 🛡️ **Home team avg points conceded** — average points conceded per game
+- 🛡️ **Away team avg points conceded** — average points conceded per game
 
-    ### Confidence Levels
-    - 🟢 **High Confidence** — probability gap ≥ 15%
-    - 🟡 **Medium Confidence** — probability gap 7-15%
-    - 🔴 **Low Confidence** — probability gap < 7% (very close game)
+### The Model
 
-    ### Limitations
-    The model does not account for:
-    - Current season injuries
-    - Weather conditions
-    - Recent trades or roster changes
-    - Coaching changes
+We compared three machine learning models:
 
-    *Built by NFLNerd using Python, XGBoost and Streamlit.*
-    """)
+| Model | Accuracy |
+|-------|----------|
+| Logistic Regression | 57.4% |
+| Random Forest | 57.6% |
+| **XGBoost** ✅ | **58.4%** |
+
+**XGBoost** was chosen as the best performing model.
+
+### What Does 58.4% Mean?
+
+- Random guessing = 50%
+- Our model = 58.4%
+- Professional betting models = 60-65%
+- Nobody consistently exceeds 65% — NFL is unpredictable!
+
+### Confidence Levels
+
+- 🟢 **High Confidence** — probability gap ≥ 15%
+- 🟡 **Medium Confidence** — probability gap 7-15%
+- 🔴 **Low Confidence** — probability gap < 7% (very close game)
+
+### Limitations
+
+The model does not account for:
+- Current season injuries
+- Weather conditions
+- Recent trades or roster changes
+- Coaching changes
+
+*Built by NFLNerd using Python, XGBoost and Streamlit.*
+""")
 
 # ✅ Footer
 st.markdown("---")
-st.caption("Built by NFLNerd | Trained on NFL data from 1990-2025 | Model accuracy: 58.4%")
+st.caption(f"Built by NFLNerd | Trained on NFL data from 1990-2025 | Model accuracy: {accuracy:.1%}")
