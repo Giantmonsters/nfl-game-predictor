@@ -2,10 +2,13 @@ import streamlit as st
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score
+from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.metrics import accuracy_score, confusion_matrix, roc_curve, auc
 from xgboost import XGBClassifier
 import plotly.graph_objects as go
+import plotly.express as px
+from plotly.subplots import make_subplots
+import numpy as np
 
 # ✅ Page config
 st.set_page_config(
@@ -45,6 +48,13 @@ h1, h2, h3 {
     font-weight: bold;
     letter-spacing: 2px;
 }
+.metric-card {
+    background-color: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 10px;
+    padding: 16px;
+    text-align: center;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -52,18 +62,6 @@ h1, h2, h3 {
 st.markdown('<p class="nflnerd-brand">🏈 NFLNERD</p>', unsafe_allow_html=True)
 st.title("NFL Game Outcome Predictor")
 st.markdown("Predict the outcome of any NFL matchup using machine learning trained on historical data since 1990.")
-
-# ✅ Defunct / renamed teams to exclude from dropdowns
-DEFUNCT_TEAMS = [
-    'Houston Oilers',
-    'Tennessee Oilers',
-    'Washington Redskins',
-    'Baltimore Colts',
-    'Phoenix Cardinals',
-    'Los Angeles Raiders',
-    'Los Angeles Rams',       # old LA Rams (pre-St. Louis era)
-    'Cleveland Browns',       # only remove if you want; they returned in 1999
-]
 
 # ✅ The 32 current active NFL teams
 CURRENT_NFL_TEAMS = [
@@ -77,13 +75,13 @@ CURRENT_NFL_TEAMS = [
     'Seattle Seahawks', 'Tampa Bay Buccaneers', 'Tennessee Titans', 'Washington Commanders'
 ]
 
-# ✅ Load and train model
+# ✅ Load and train model — now returns extra data for the DS tab
 @st.cache_resource
 def load_model():
     scores = pd.read_csv('data/spreadspoke_scores.csv')
     scores = scores[(scores['score_home'] > 0) | (scores['score_away'] > 0)]
 
-    # Rename relocated/rebranded teams so historical data maps to current names
+    # Rename relocated/rebranded teams
     team_renames = {
         'Oakland Raiders': 'Las Vegas Raiders',
         'St. Louis Rams': 'Los Angeles Rams',
@@ -129,20 +127,72 @@ def load_model():
             'away_avg_scored': away_scored,
             'home_avg_conceded': home_conceded,
             'away_avg_conceded': away_conceded,
-            'home_win': row['home_win']
+            'home_win': row['home_win'],
+            'season': season
         })
 
     df_features = pd.DataFrame(game_data).dropna()
-    X = df_features.drop('home_win', axis=1)
+    X = df_features.drop(['home_win', 'season'], axis=1)
     y = df_features['home_win']
+    seasons = df_features['season']
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
+    # Train all three models for comparison
+    lr = LogisticRegression(random_state=42, max_iter=1000)
+    rf = RandomForestClassifier(n_estimators=100, random_state=42)
     xgb = XGBClassifier(n_estimators=100, random_state=42, eval_metric='logloss')
-    xgb.fit(X_train, y_train)
-    acc = accuracy_score(y_test, xgb.predict(X_test))
 
-    return xgb, scores, get_team_stats, acc
+    lr.fit(X_train, y_train)
+    rf.fit(X_train, y_train)
+    xgb.fit(X_train, y_train)
+
+    lr_acc = accuracy_score(y_test, lr.predict(X_test))
+    rf_acc = accuracy_score(y_test, rf.predict(X_test))
+    xgb_acc = accuracy_score(y_test, xgb.predict(X_test))
+
+    # Season-by-season accuracy
+    season_acc = []
+    for s in sorted(seasons.unique()):
+        if s < 2000:
+            continue
+        mask = seasons == s
+        if mask.sum() < 10:
+            continue
+        X_s = X[mask]
+        y_s = y[mask]
+        preds = xgb.predict(X_s)
+        season_acc.append({'season': int(s), 'accuracy': accuracy_score(y_s, preds)})
+
+    # Confusion matrix
+    cm = confusion_matrix(y_test, xgb.predict(X_test))
+
+    # ROC curve
+    fpr, tpr, _ = roc_curve(y_test, xgb.predict_proba(X_test)[:, 1])
+    roc_auc = auc(fpr, tpr)
+
+    # Confidence bucket accuracy
+    probs = xgb.predict_proba(X_test)[:, 1]
+    conf_data = []
+    for label, low, high in [('🔴 Low (<7%)', 0, 0.07), ('🟡 Medium (7–15%)', 0.07, 0.15), ('🟢 High (>15%)', 0.15, 0.5)]:
+        mask = (abs(probs - 0.5) >= low) & (abs(probs - 0.5) < high)
+        if mask.sum() > 0:
+            bucket_acc = accuracy_score(y_test[mask], xgb.predict(X_test)[mask])
+            conf_data.append({'confidence': label, 'accuracy': bucket_acc, 'games': mask.sum()})
+
+    # Feature importances
+    feature_names = ['Home Win Rate', 'Away Win Rate', 'Home Avg Scored',
+                     'Away Avg Scored', 'Home Avg Conceded', 'Away Avg Conceded']
+    importances = xgb.feature_importances_
+
+    return (xgb, scores, get_team_stats, xgb_acc,
+            lr_acc, rf_acc,
+            pd.DataFrame(season_acc),
+            cm, fpr, tpr, roc_auc,
+            conf_data,
+            feature_names, importances,
+            X_test, y_test)
+
 
 # ✅ Get recent form for a team
 def get_recent_form(scores, team, n=5):
@@ -158,6 +208,7 @@ def get_recent_form(scores, team, n=5):
     all_games['schedule_date'] = pd.to_datetime(all_games['schedule_date'])
     all_games = all_games.sort_values('schedule_date', ascending=False).head(n)
     return all_games
+
 
 # ✅ Get head to head record
 def get_head_to_head(scores, team1, team2):
@@ -182,9 +233,16 @@ def get_head_to_head(scores, team1, team2):
 
     return team1_wins, team2_wins, len(h2h)
 
+
 # ✅ Load model
 with st.spinner('Loading model... this may take a minute on first load!'):
-    xgb, scores, get_team_stats, accuracy = load_model()
+    (xgb, scores, get_team_stats, accuracy,
+     lr_acc, rf_acc,
+     season_acc_df,
+     cm, fpr, tpr, roc_auc,
+     conf_data,
+     feature_names, importances,
+     X_test, y_test) = load_model()
 
 st.success(f"Model loaded! Accuracy: {accuracy:.1%}")
 
@@ -192,8 +250,11 @@ st.success(f"Model loaded! Accuracy: {accuracy:.1%}")
 all_teams = sorted(CURRENT_NFL_TEAMS)
 
 # ✅ Tabs
-tab1, tab2, tab3 = st.tabs(["🔮 Predict", "📅 Weekly Predictions", "ℹ️ How It Works"])
+tab1, tab2, tab3, tab4 = st.tabs(["🔮 Predict", "📅 Weekly Predictions", "🧪 Data Science", "ℹ️ How It Works"])
 
+# ─────────────────────────────────────────────
+# TAB 1 — PREDICT
+# ─────────────────────────────────────────────
 with tab1:
     st.markdown("---")
     col1, col2 = st.columns(2)
@@ -220,7 +281,6 @@ with tab1:
             home_prob = prob[1]
             away_prob = prob[0]
 
-            # ✅ Confidence indicator
             diff = abs(home_prob - away_prob)
             if diff >= 0.15:
                 confidence = "🟢 High Confidence"
@@ -232,7 +292,6 @@ with tab1:
                 confidence = "🔴 Low Confidence — Close Game"
                 confidence_msg = "This is a very tight matchup. Could go either way!"
 
-            # ✅ Result
             st.markdown("---")
             st.subheader("📊 Prediction Results")
 
@@ -251,7 +310,17 @@ with tab1:
 
             st.info(f"{confidence} — {confidence_msg}")
 
-            # ✅ Win probability bar chart
+            # Team stat comparison table
+            st.markdown("---")
+            st.subheader("📋 Team Stats Comparison")
+            stats_df = pd.DataFrame({
+                'Stat': ['Historical Win Rate', 'Avg Points Scored', 'Avg Points Conceded'],
+                f'🏠 {home_team}': [f"{home_wr:.1%}", f"{home_scored:.1f}", f"{home_conceded:.1f}"],
+                f'✈️ {away_team}': [f"{away_wr:.1%}", f"{away_scored:.1f}", f"{away_conceded:.1f}"],
+            })
+            st.dataframe(stats_df.set_index('Stat'), use_container_width=True)
+
+            # Win probability bar chart
             st.markdown("---")
             st.subheader("📊 Win Probability")
 
@@ -274,7 +343,7 @@ with tab1:
             )
             st.plotly_chart(fig_prob, use_container_width=True)
 
-            # ✅ Head to head
+            # Head to head
             st.markdown("---")
             st.subheader("⚔️ Head to Head Record")
             h2h_wins, h2h_losses, h2h_total = get_head_to_head(scores, home_team, away_team)
@@ -297,7 +366,7 @@ with tab1:
                 else:
                     st.write(f"The all time series is tied {h2h_wins}-{h2h_losses}")
 
-            # ✅ Recent form
+            # Recent form
             st.markdown("---")
             st.subheader("📅 Recent Form (Last 5 Games)")
 
@@ -314,6 +383,9 @@ with tab1:
                 for _, row in away_form.iterrows():
                     st.markdown(row['result'])
 
+# ─────────────────────────────────────────────
+# TAB 2 — WEEKLY PREDICTIONS
+# ─────────────────────────────────────────────
 with tab2:
     st.subheader("📅 Weekly Predictions")
     st.markdown("Enter this week's matchups and get predictions for all games at once.")
@@ -357,12 +429,258 @@ with tab2:
 
             st.markdown(f"{conf} **{h}** vs **{a}** → 🏆 **{winner}** ({win_prob:.1%})")
 
+# ─────────────────────────────────────────────
+# TAB 3 — DATA SCIENCE SHOWCASE
+# ─────────────────────────────────────────────
 with tab3:
+    st.subheader("🧪 Data Science & Model Analysis")
+    st.markdown("A deep dive into how the prediction model works, what it's learned, and how well it actually performs.")
+
+    # ── Section 1: Model Comparison ──
+    st.markdown("---")
+    st.subheader("🤖 Model Comparison")
+    st.markdown("Three machine learning models were trained and evaluated on the same dataset. XGBoost came out on top.")
+
+    model_names = ['Logistic Regression', 'Random Forest', 'XGBoost ✅']
+    model_accs = [lr_acc * 100, rf_acc * 100, accuracy * 100]
+    colors = ['#555555', '#888888', '#D50A0A']
+
+    fig_models = go.Figure(go.Bar(
+        x=model_names,
+        y=model_accs,
+        marker_color=colors,
+        text=[f"{a:.1f}%" for a in model_accs],
+        textposition='outside',
+        textfont=dict(color='white', size=14)
+    ))
+    fig_models.add_hline(y=50, line_dash='dash', line_color='#666',
+                         annotation_text='Random Guessing (50%)', annotation_font_color='#aaa')
+    fig_models.update_layout(
+        plot_bgcolor='#0a0a0a', paper_bgcolor='#0a0a0a',
+        font=dict(color='white'),
+        yaxis=dict(title='Accuracy (%)', range=[45, 65], gridcolor='#333'),
+        xaxis=dict(gridcolor='#333'),
+        showlegend=False, height=380
+    )
+    st.plotly_chart(fig_models, use_container_width=True)
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Logistic Regression", f"{lr_acc:.1%}")
+    with col2:
+        st.metric("Random Forest", f"{rf_acc:.1%}")
+    with col3:
+        st.metric("XGBoost (chosen)", f"{accuracy:.1%}", delta=f"+{(accuracy - lr_acc):.1%} vs LR")
+
+    # ── Section 2: Feature Importance ──
+    st.markdown("---")
+    st.subheader("🔍 Feature Importance")
+    st.markdown("Which stats does the model rely on most when making predictions? Higher = more influential.")
+
+    sorted_idx = np.argsort(importances)[::-1]
+    sorted_features = [feature_names[i] for i in sorted_idx]
+    sorted_importances = [importances[i] for i in sorted_idx]
+
+    fig_fi = go.Figure(go.Bar(
+        x=sorted_importances,
+        y=sorted_features,
+        orientation='h',
+        marker_color='#013369',
+        text=[f"{v:.3f}" for v in sorted_importances],
+        textposition='outside',
+        textfont=dict(color='white')
+    ))
+    fig_fi.update_layout(
+        plot_bgcolor='#0a0a0a', paper_bgcolor='#0a0a0a',
+        font=dict(color='white'),
+        xaxis=dict(title='Importance Score', gridcolor='#333'),
+        yaxis=dict(gridcolor='#333', autorange='reversed'),
+        showlegend=False, height=380
+    )
+    st.plotly_chart(fig_fi, use_container_width=True)
+
+    top_feature = sorted_features[0]
+    st.info(f"💡 **{top_feature}** is the single most important factor in the model's predictions — teams with a stronger historical record have a significantly higher chance of being picked as the winner.")
+
+    # ── Section 3: Season-by-Season Accuracy ──
+    st.markdown("---")
+    st.subheader("📈 Season-by-Season Accuracy")
+    st.markdown("How did the model perform year by year? Note: the model is trained on all data up to 2024, so earlier seasons have more data behind them.")
+
+    if not season_acc_df.empty:
+        avg_acc = season_acc_df['accuracy'].mean()
+
+        fig_season = go.Figure()
+        fig_season.add_trace(go.Scatter(
+            x=season_acc_df['season'],
+            y=season_acc_df['accuracy'] * 100,
+            mode='lines+markers',
+            line=dict(color='#D50A0A', width=2),
+            marker=dict(size=7, color='#D50A0A'),
+            name='Model Accuracy'
+        ))
+        fig_season.add_hline(y=50, line_dash='dash', line_color='#666',
+                             annotation_text='Random Guessing', annotation_font_color='#aaa')
+        fig_season.add_hline(y=avg_acc * 100, line_dash='dot', line_color='#013369',
+                             annotation_text=f'Average ({avg_acc:.1%})', annotation_font_color='#aaa')
+        fig_season.update_layout(
+            plot_bgcolor='#0a0a0a', paper_bgcolor='#0a0a0a',
+            font=dict(color='white'),
+            xaxis=dict(title='Season', gridcolor='#333', dtick=2),
+            yaxis=dict(title='Accuracy (%)', range=[40, 75], gridcolor='#333'),
+            showlegend=False, height=380
+        )
+        st.plotly_chart(fig_season, use_container_width=True)
+
+        best_season = season_acc_df.loc[season_acc_df['accuracy'].idxmax()]
+        worst_season = season_acc_df.loc[season_acc_df['accuracy'].idxmin()]
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Average Accuracy", f"{avg_acc:.1%}")
+        with col2:
+            st.metric("Best Season", f"{int(best_season['season'])} ({best_season['accuracy']:.1%})")
+        with col3:
+            st.metric("Toughest Season", f"{int(worst_season['season'])} ({worst_season['accuracy']:.1%})")
+
+    # ── Section 4: Confidence vs Accuracy ──
+    st.markdown("---")
+    st.subheader("🎯 Confidence Level vs Actual Accuracy")
+    st.markdown("Does the model's confidence actually reflect how accurate it is? It should be more accurate on high-confidence picks.")
+
+    if conf_data:
+        conf_df = pd.DataFrame(conf_data)
+        fig_conf = go.Figure(go.Bar(
+            x=conf_df['confidence'],
+            y=conf_df['accuracy'] * 100,
+            marker_color=['#D50A0A', '#FFB300', '#00C853'],
+            text=[f"{a:.1%} ({g} games)" for a, g in zip(conf_df['accuracy'], conf_df['games'])],
+            textposition='outside',
+            textfont=dict(color='white', size=13)
+        ))
+        fig_conf.add_hline(y=50, line_dash='dash', line_color='#666',
+                           annotation_text='Random Guessing', annotation_font_color='#aaa')
+        fig_conf.update_layout(
+            plot_bgcolor='#0a0a0a', paper_bgcolor='#0a0a0a',
+            font=dict(color='white'),
+            yaxis=dict(title='Actual Accuracy (%)', range=[40, 80], gridcolor='#333'),
+            xaxis=dict(gridcolor='#333'),
+            showlegend=False, height=380
+        )
+        st.plotly_chart(fig_conf, use_container_width=True)
+        st.info("💡 High confidence predictions should have a noticeably higher accuracy than low confidence ones — if they do, the model's confidence scores are well-calibrated.")
+
+    # ── Section 5: Confusion Matrix ──
+    st.markdown("---")
+    st.subheader("🔢 Confusion Matrix")
+    st.markdown("Shows how often the model correctly predicted home wins vs away wins on the test set.")
+
+    fig_cm = go.Figure(go.Heatmap(
+        z=cm,
+        x=['Predicted Away Win', 'Predicted Home Win'],
+        y=['Actual Away Win', 'Actual Home Win'],
+        colorscale=[[0, '#0a0a0a'], [1, '#D50A0A']],
+        text=cm,
+        texttemplate='%{text}',
+        textfont=dict(size=20, color='white'),
+        showscale=False
+    ))
+    fig_cm.update_layout(
+        plot_bgcolor='#0a0a0a', paper_bgcolor='#0a0a0a',
+        font=dict(color='white'),
+        height=350
+    )
+    st.plotly_chart(fig_cm, use_container_width=True)
+
+    tn, fp, fn, tp = cm.ravel()
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("True Away Wins", tn)
+    with col2:
+        st.metric("True Home Wins", tp)
+    with col3:
+        st.metric("False Positives", fp, delta="Away predicted as Home", delta_color="inverse")
+    with col4:
+        st.metric("False Negatives", fn, delta="Home predicted as Away", delta_color="inverse")
+
+    # ── Section 6: ROC Curve ──
+    st.markdown("---")
+    st.subheader("📉 ROC Curve")
+    st.markdown(f"The ROC curve shows the model's ability to distinguish between home wins and away wins. AUC = **{roc_auc:.3f}** (perfect = 1.0, random = 0.5).")
+
+    fig_roc = go.Figure()
+    fig_roc.add_trace(go.Scatter(
+        x=fpr, y=tpr,
+        mode='lines',
+        line=dict(color='#D50A0A', width=2),
+        name=f'XGBoost (AUC = {roc_auc:.3f})'
+    ))
+    fig_roc.add_trace(go.Scatter(
+        x=[0, 1], y=[0, 1],
+        mode='lines',
+        line=dict(color='#666', dash='dash'),
+        name='Random Classifier'
+    ))
+    fig_roc.update_layout(
+        plot_bgcolor='#0a0a0a', paper_bgcolor='#0a0a0a',
+        font=dict(color='white'),
+        xaxis=dict(title='False Positive Rate', gridcolor='#333'),
+        yaxis=dict(title='True Positive Rate', gridcolor='#333'),
+        legend=dict(bgcolor='#1a1a1a', bordercolor='#333'),
+        height=400
+    )
+    st.plotly_chart(fig_roc, use_container_width=True)
+
+    # ── Section 7: Dataset Overview ──
+    st.markdown("---")
+    st.subheader("📦 Dataset Overview")
+
+    total_games = len(scores)
+    seasons_covered = int(scores['schedule_season'].max()) - int(scores['schedule_season'].min()) + 1
+    teams_covered = len(set(scores['team_home'].unique()) | set(scores['team_away'].unique()))
+    home_win_pct = scores['home_win'].mean()
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total Games", f"{total_games:,}")
+    with col2:
+        st.metric("Seasons", seasons_covered)
+    with col3:
+        st.metric("Teams", teams_covered)
+    with col4:
+        st.metric("Home Win Rate", f"{home_win_pct:.1%}")
+
+    st.markdown("#### Home Win Rate by Decade")
+    scores['decade'] = (scores['schedule_season'] // 10 * 10).astype(str) + 's'
+    decade_hw = scores.groupby('decade')['home_win'].mean().reset_index()
+    decade_hw.columns = ['Decade', 'Home Win Rate']
+
+    fig_decade = go.Figure(go.Bar(
+        x=decade_hw['Decade'],
+        y=decade_hw['Home Win Rate'] * 100,
+        marker_color='#013369',
+        text=[f"{v:.1f}%" for v in decade_hw['Home Win Rate'] * 100],
+        textposition='outside',
+        textfont=dict(color='white')
+    ))
+    fig_decade.update_layout(
+        plot_bgcolor='#0a0a0a', paper_bgcolor='#0a0a0a',
+        font=dict(color='white'),
+        yaxis=dict(title='Home Win %', range=[0, 70], gridcolor='#333'),
+        xaxis=dict(gridcolor='#333'),
+        showlegend=False, height=320
+    )
+    st.plotly_chart(fig_decade, use_container_width=True)
+    st.caption("Home field advantage has gradually declined since the 1990s — interesting for the model!")
+
+# ─────────────────────────────────────────────
+# TAB 4 — HOW IT WORKS
+# ─────────────────────────────────────────────
+with tab4:
     st.subheader("ℹ️ How The Model Works")
     st.markdown("""
 ### The Data
 
-This model is trained on **9,455 NFL games** from 1990 to 2025, sourced from the NFL scores and betting dataset on Kaggle.
+This model is trained on **NFL games from 1990 to 2025**, sourced from the NFL scores and betting dataset on Kaggle.
 
 ### The Features
 
@@ -377,22 +695,7 @@ For each game, the model uses 6 features:
 
 ### The Model
 
-We compared three machine learning models:
-
-| Model | Accuracy |
-|-------|----------|
-| Logistic Regression | 57.4% |
-| Random Forest | 57.6% |
-| **XGBoost** ✅ | **58.4%** |
-
-**XGBoost** was chosen as the best performing model.
-
-### What Does 58.4% Mean?
-
-- Random guessing = 50%
-- Our model = 58.4%
-- Professional betting models = 60-65%
-- Nobody consistently exceeds 65% — NFL is unpredictable!
+Three machine learning models were compared — XGBoost performed best and was chosen. See the **🧪 Data Science** tab for the full breakdown.
 
 ### Confidence Levels
 
