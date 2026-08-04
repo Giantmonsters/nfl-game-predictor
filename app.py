@@ -53,23 +53,51 @@ st.markdown('<p class="nflnerd-brand">🏈 NFLNERD</p>', unsafe_allow_html=True)
 st.title("NFL Game Outcome Predictor")
 st.markdown("Predict the outcome of any NFL matchup using machine learning trained on historical data since 1990.")
 
+# ✅ Defunct / renamed teams to exclude from dropdowns
+DEFUNCT_TEAMS = [
+    'Houston Oilers',
+    'Tennessee Oilers',
+    'Washington Redskins',
+    'Baltimore Colts',
+    'Phoenix Cardinals',
+    'Los Angeles Raiders',
+    'Los Angeles Rams',       # old LA Rams (pre-St. Louis era)
+    'Cleveland Browns',       # only remove if you want; they returned in 1999
+]
+
+# ✅ The 32 current active NFL teams
+CURRENT_NFL_TEAMS = [
+    'Arizona Cardinals', 'Atlanta Falcons', 'Baltimore Ravens', 'Buffalo Bills',
+    'Carolina Panthers', 'Chicago Bears', 'Cincinnati Bengals', 'Cleveland Browns',
+    'Dallas Cowboys', 'Denver Broncos', 'Detroit Lions', 'Green Bay Packers',
+    'Houston Texans', 'Indianapolis Colts', 'Jacksonville Jaguars', 'Kansas City Chiefs',
+    'Las Vegas Raiders', 'Los Angeles Chargers', 'Los Angeles Rams', 'Miami Dolphins',
+    'Minnesota Vikings', 'New England Patriots', 'New Orleans Saints', 'New York Giants',
+    'New York Jets', 'Philadelphia Eagles', 'Pittsburgh Steelers', 'San Francisco 49ers',
+    'Seattle Seahawks', 'Tampa Bay Buccaneers', 'Tennessee Titans', 'Washington Commanders'
+]
+
 # ✅ Load and train model
 @st.cache_resource
 def load_model():
     scores = pd.read_csv('data/spreadspoke_scores.csv')
     scores = scores[(scores['score_home'] > 0) | (scores['score_away'] > 0)]
 
-    # Rename relocated teams
-    scores['team_home'] = scores['team_home'].replace({
+    # Rename relocated/rebranded teams so historical data maps to current names
+    team_renames = {
         'Oakland Raiders': 'Las Vegas Raiders',
         'St. Louis Rams': 'Los Angeles Rams',
-        'San Diego Chargers': 'Los Angeles Chargers'
-    })
-    scores['team_away'] = scores['team_away'].replace({
-        'Oakland Raiders': 'Las Vegas Raiders',
-        'St. Louis Rams': 'Los Angeles Rams',
-        'San Diego Chargers': 'Los Angeles Chargers'
-    })
+        'San Diego Chargers': 'Los Angeles Chargers',
+        'Washington Redskins': 'Washington Commanders',
+        'Washington Football Team': 'Washington Commanders',
+        'Tennessee Oilers': 'Tennessee Titans',
+        'Houston Oilers': 'Tennessee Titans',
+        'Phoenix Cardinals': 'Arizona Cardinals',
+        'Baltimore Colts': 'Indianapolis Colts',
+        'Los Angeles Raiders': 'Las Vegas Raiders',
+    }
+    scores['team_home'] = scores['team_home'].replace(team_renames)
+    scores['team_away'] = scores['team_away'].replace(team_renames)
 
     scores['home_win'] = (scores['score_home'] > scores['score_away']).astype(int)
     scores['schedule_date'] = pd.to_datetime(scores['schedule_date'])
@@ -122,7 +150,7 @@ def get_recent_form(scores, team, n=5):
     home_games['win'] = home_games['score_home'] > home_games['score_away']
     home_games['result'] = home_games.apply(lambda r: f"✅ W {int(r['score_home'])}-{int(r['score_away'])} vs {r['team_away']}" if r['win'] else f"❌ L {int(r['score_home'])}-{int(r['score_away'])} vs {r['team_away']}", axis=1)
 
-    away_games = scores[scores['team_away'] == team][['schedule_date', 'team_home', 'team_away','score_home', 'score_away']].copy()
+    away_games = scores[scores['team_away'] == team][['schedule_date', 'team_home', 'team_away', 'score_home', 'score_away']].copy()
     away_games['win'] = away_games['score_away'] > away_games['score_home']
     away_games['result'] = away_games.apply(lambda r: f"✅ W {int(r['score_away'])}-{int(r['score_home'])} @ {r['team_home']}" if r['win'] else f"❌ L {int(r['score_away'])}-{int(r['score_home'])} @ {r['team_home']}", axis=1)
 
@@ -160,12 +188,13 @@ with st.spinner('Loading model... this may take a minute on first load!'):
 
 st.success(f"Model loaded! Accuracy: {accuracy:.1%}")
 
+# ✅ Use only current 32 NFL teams in dropdowns
+all_teams = sorted(CURRENT_NFL_TEAMS)
+
 # ✅ Tabs
 tab1, tab2, tab3 = st.tabs(["🔮 Predict", "📅 Weekly Predictions", "ℹ️ How It Works"])
 
 with tab1:
-    all_teams = sorted(list(set(scores['team_home'].unique()) | set(scores['team_away'].unique())))
-
     st.markdown("---")
     col1, col2 = st.columns(2)
 
@@ -291,16 +320,15 @@ with tab2:
     st.info("Add up to 16 matchups below:")
 
     num_games = st.slider("How many games?", min_value=1, max_value=16, value=4)
-    all_teams_list = sorted(list(set(scores['team_home'].unique()) | set(scores['team_away'].unique())))
 
     matchups = []
     for i in range(num_games):
         st.markdown(f"**Game {i+1}**")
         col1, col2 = st.columns(2)
         with col1:
-            h = st.selectbox(f"Home team {i+1}", all_teams_list, key=f"home_{i}")
+            h = st.selectbox(f"Home team {i+1}", all_teams, key=f"home_{i}")
         with col2:
-            a = st.selectbox(f"Away team {i+1}", all_teams_list, key=f"away_{i}", index=1)
+            a = st.selectbox(f"Away team {i+1}", all_teams, key=f"away_{i}", index=1)
         matchups.append((h, a))
 
     if st.button("🔮 Predict All Games", use_container_width=True):
