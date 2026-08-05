@@ -116,14 +116,7 @@ def load_model():
     rf_acc  = accuracy_score(y_test,rf.predict(X_test))
     xgb_acc = accuracy_score(y_test,xgb.predict(X_test))
 
-    # Pick the most accurate model dynamically
-    accs = {'Logistic Regression': (lr_acc, lr), 'Random Forest': (rf_acc, rf), 'XGBoost': (xgb_acc, xgb)}
-    best_name = max(accs, key=lambda k: accs[k][0])
-    best_model = accs[best_name][1]
-    # Always use XGBoost for predictions but note if another scored higher
-    chosen_model = xgb
-
-    season_notes = {
+    season_notes={
         2004:"2004 — An unusually balanced season with no dominant team. High parity meant more upsets.",
         2007:"2007 — The undefeated Patriots made this one of the most predictable seasons in recent memory.",
         2020:"2020 — The COVID season. Games were played without fans, removing crowd noise as a factor entirely.",
@@ -136,15 +129,15 @@ def load_model():
         mask=seasons==s
         if mask.sum()<10: continue
         season_acc.append({'season':int(s),
-            'accuracy':accuracy_score(y[mask],chosen_model.predict(X[mask])),
+            'accuracy':accuracy_score(y[mask],xgb.predict(X[mask])),
             'note':season_notes.get(int(s),"")})
 
-    cm=confusion_matrix(y_test,chosen_model.predict(X_test))
-    fpr,tpr,_=roc_curve(y_test,chosen_model.predict_proba(X_test)[:,1])
+    cm=confusion_matrix(y_test,xgb.predict(X_test))
+    fpr,tpr,_=roc_curve(y_test,xgb.predict_proba(X_test)[:,1])
     roc_auc=auc(fpr,tpr)
 
-    probs=chosen_model.predict_proba(X_test)[:,1]
-    preds_test=chosen_model.predict(X_test)
+    probs=xgb.predict_proba(X_test)[:,1]
+    preds_test=xgb.predict(X_test)
     conf_data=[]
     for display,low,high in [
         ('🔴 Low Confidence',   0.0, 0.07),
@@ -157,19 +150,19 @@ def load_model():
                 'accuracy':accuracy_score(y_test[mask],preds_test[mask]),
                 'games':int(mask.sum())})
 
-    feature_names=['Home Win Rate','Away Win Rate','Home Avg Points Scored',
-                   'Away Avg Points Scored','Home Avg Points Conceded','Away Avg Points Conceded']
-    importances=chosen_model.feature_importances_
+    feature_names=['Home Team Win Rate','Away Team Win Rate','Home Team Avg Points Scored',
+                   'Away Team Avg Points Scored','Home Team Avg Points Conceded','Away Team Avg Points Conceded']
+    importances=xgb.feature_importances_
 
     scores_32=scores[scores['schedule_season']>=2002].copy()
     scores_32['period']=pd.cut(scores_32['schedule_season'],
         bins=[2001,2009,2019,2026],labels=['2002–2009','2010–2019','2020–2025'])
     period_hw=scores_32.groupby('period',observed=True)['home_win'].agg(
-        home_win_rate='mean',games='count').reset_index()
-    period_hw.columns=['Period','Home Win Rate','Games']
+        home_win_rate='mean',games='count',home_wins=('sum')).reset_index()
+    period_hw.columns=['Period','Home Win Rate','Games','Home Wins']
 
-    return (chosen_model,scores,get_team_stats,xgb_acc,lr_acc,rf_acc,
-            best_name,pd.DataFrame(season_acc),cm,fpr,tpr,roc_auc,
+    return (xgb,scores,get_team_stats,xgb_acc,lr_acc,rf_acc,
+            pd.DataFrame(season_acc),cm,fpr,tpr,roc_auc,
             conf_data,feature_names,importances,X_test,y_test,period_hw,scores_32)
 
 def get_recent_form(scores,team,n=5):
@@ -203,7 +196,7 @@ st.markdown("Predict the outcome of any NFL matchup using machine learning train
 
 with st.spinner('Loading model...'):
     (model,scores,get_team_stats,xgb_acc,lr_acc,rf_acc,
-     best_name,season_acc_df,cm,fpr,tpr,roc_auc,
+     season_acc_df,cm,fpr,tpr,roc_auc,
      conf_data,feature_names,importances,
      X_test,y_test,period_hw,scores_32)=load_model()
 
@@ -312,60 +305,90 @@ with tab3:
     st.subheader("🧪 Data Science & Model Analysis")
     st.markdown("This tab walks through how the prediction model was built, what it learned from 35 years of NFL data, and how well it actually performs.")
 
-    # ── 1. Which Model Performed Best? ────────
+    # ── 1. Which Model Performed Best? ──────
     st.markdown("---")
     st.subheader("🤖 1. Which Model Performed Best?")
 
     explainer("""
-<b>What is a machine learning model?</b><br>
-A machine learning model is a piece of software that studies historical data and learns which patterns tend to predict a certain outcome.
-It is similar to a weather forecasting app — it doesn't know exactly what tomorrow's weather will be,
-but after studying millions of days of past weather data it can make an educated prediction.<br><br>
+<b>What are these models actually doing?</b><br>
+Each model was trained to answer one question: <b>given the stats of the two teams playing, which team will win the game?</b>
+They were each trained on every NFL game played between 1990 and 2025 — over 9,000 games in total.
+After training, they were each tested on a separate set of roughly 1,900 games they had never seen before,
+to see what percentage of those games they correctly predicted the winner of.
+That percentage is the accuracy figure shown in the chart below.<br><br>
 
-Here, each model was given the same 6 stats for every game played since 1990:
-the home team's historical win rate, the away team's historical win rate,
-average points scored by each team, and average points conceded by each team.
-It then studied tens of thousands of games to learn which combinations of those stats tend to produce a home win or an away win.<br><br>
-
-<b>Three models were trained and tested against each other:</b><br><br>
+<b>The 6 stats each model uses — and what they mean:</b><br>
+For every game being predicted, the model is given 3 stats for the home team and 3 stats for the away team:<br>
+• <b>Win rate</b> — for the <i>home team</i>, this is their overall win percentage across all games they have played since 1990.
+For the <i>away team</i>, this is their overall win percentage across all games they have played since 1990.
+The model gets both, separately, so it can compare how strong each team has been historically.<br>
+Note: the home team's away win rate and the away team's home win rate are <i>not</i> used separately —
+each team gets one overall win rate that covers all their games, home and away combined.<br>
+• <b>Average points scored</b> — how many points that team scores per game on average, calculated across all their games since 1990.<br>
+• <b>Average points conceded</b> — how many points that team lets in per game on average, across all their games since 1990.<br><br>
 
 <b>Logistic Regression</b><br>
-This is the simplest approach. It looks at all 6 stats together and assigns a weight to each one — for example,
-it might learn that win rate matters more than average points scored. It then combines all 6 weighted stats into a single score per team and predicts whichever team scores higher will win.<br>
-It does <i>not</i> just pick whoever has the highest single stat — a team with a great home win rate but a poor away win rate
-would have that weakness factored in, because the model is weighing all 6 numbers simultaneously.<br><br>
+Logistic Regression looks at all 6 stats for both teams and assigns a weight to each one based on how useful it has historically been for predicting winners.
+It then combines all 6 weighted stats into a single score and predicts whichever team scores higher will win.<br><br>
+
+Each team contributes 3 stats: win rate, average points scored, and average points conceded.
+It is important to note that it does not simply pick whoever has the highest single stat.
+All 6 numbers are weighed simultaneously — so a team with a high home win rate but a poor overall win rate would have that weakness factored in.<br><br>
+
+<b>Example using fake numbers — Kansas City Chiefs (Home) vs Philadelphia Eagles (Away):</b><br>
+<table style="color:white; border-collapse:collapse; width:100%; font-size:13px;">
+<tr style="border-bottom:1px solid #444;">
+  <th style="text-align:left; padding:6px;">Stat</th>
+  <th style="padding:6px;">Chiefs (Home)</th>
+  <th style="padding:6px;">Eagles (Away)</th>
+  <th style="padding:6px;">Weight learned by model</th>
+</tr>
+<tr style="border-bottom:1px solid #333;">
+  <td style="padding:6px;">Win Rate</td><td style="padding:6px; text-align:center;">62%</td><td style="padding:6px; text-align:center;">58%</td><td style="padding:6px; text-align:center;">×2.1</td>
+</tr>
+<tr style="border-bottom:1px solid #333;">
+  <td style="padding:6px;">Avg Points Scored</td><td style="padding:6px; text-align:center;">27.4</td><td style="padding:6px; text-align:center;">25.8</td><td style="padding:6px; text-align:center;">×0.8</td>
+</tr>
+<tr style="border-bottom:1px solid #333;">
+  <td style="padding:6px;">Avg Points Conceded</td><td style="padding:6px; text-align:center;">20.1</td><td style="padding:6px; text-align:center;">22.3</td><td style="padding:6px; text-align:center;">×0.6</td>
+</tr>
+</table>
+<br>
+The model multiplies each stat by its weight, combines them into a total score per team, and predicts the team with the higher combined score wins.
+In this example, the Chiefs' stronger win rate and lower points conceded would push their combined score higher — so the model predicts a Chiefs win.<br><br>
 
 <b>Random Forest</b><br>
-This builds a large number of independent <b>decision trees</b>. A decision tree is a series of yes/no questions about the data —
-for example: "Is the home team's win rate above 55%? → Yes → Is the away team's points conceded above 25 per game? → Yes → Predict home win."
+Random Forest builds a large number of independent <b>decision trees</b>.
+A decision tree is a series of yes/no questions about the data —
+for example: <i>"Is the home team's win rate above 55%? → Yes → Is the away team's average points conceded above 25? → Yes → Predict: home win."</i>
 Each tree asks slightly different questions and arrives at its own prediction.
-The Random Forest then takes a <b>majority vote</b> across all those trees — whichever outcome the most trees predicted is the final answer,
-similar to asking 100 analysts to each independently predict a game and going with whatever the majority said.<br><br>
+The Random Forest then takes a <b>majority vote</b> across all those trees — whichever outcome the most trees predicted is the final answer.
+This is similar to asking 100 analysts to each independently predict the same game and going with whatever the majority said.<br><br>
 
 <b>XGBoost</b><br>
 XGBoost also builds decision trees, but with a key difference: instead of building them all independently,
-it builds them <i>one at a time</i>, where each new tree specifically focuses on correcting the mistakes the previous trees made.
-This process — called gradient boosting — makes the overall prediction more and more refined with each tree added.<br><br>
+it builds them <i>one at a time</i>, where each new tree specifically focuses on correcting the mistakes the previous trees made.<br><br>
 
-<b>Why was XGBoost chosen?</b><br>
-The most accurate model on this dataset is used for all predictions — whichever that turns out to be when the model is run.
-XGBoost is also preferred because it produces <b>importance scores</b> (explained in the next section) that show exactly which stats drove each prediction,
-making the model explainable rather than a black box.
-It also handles more data and additional stats better than Logistic Regression as the project grows —
-for example, adding QB passer rating, days of rest between games, weather conditions, injury reports,
-or stadium type would all be stats XGBoost could take advantage of more effectively.<br><br>
+<b>Example of how it corrects mistakes:</b><br>
+Tree 1 might learn that teams with a higher win rate tend to win — a reasonable rule that gets many games right.
+But it will fail on games where a lower win-rate team with a dominant offence beats a higher win-rate team with a weak defence.
+Tree 2 then focuses specifically on those failures, learning that points scored and points conceded matter a lot when win rates are close.
+Tree 3 focuses on the remaining mistakes, and so on — each tree making the overall prediction more refined.
+After all trees have run, XGBoost combines their outputs and produces a final probability for each team winning,
+then predicts whichever team has the higher probability.<br><br>
 
-<b>What does parity mean?</b><br>
-Parity in the NFL means the league is deliberately designed so that every team has a roughly equal chance of competing each season.
-The NFL achieves this through the draft (where the worst teams get first pick of new college talent each year)
-and the salary cap (which limits how much any one team can spend on players, preventing the richest teams from hoarding all the best talent).
-This makes the NFL far more unpredictable than most other sports leagues, which is part of why even the best models only reach around 58–60% accuracy.
+<b>Why was XGBoost chosen to power this predictor?</b><br>
+XGBoost produces <b>importance scores</b> — a breakdown of which stats had the most influence in determining the winner across all predictions,
+and how much influence they each had. This makes the model transparent and explainable, which is important for a tool like this.
+It is also better suited for growth: adding more stats such as QB passer rating, days of rest between games, weather conditions,
+and injury reports would help XGBoost be more accurate and overtake both Random Forest and Logistic Regression by a larger margin,
+as it is better at finding patterns across many combined stats simultaneously.
 """)
 
     model_names=['Logistic Regression','Random Forest','XGBoost']
     model_accs=[lr_acc*100,rf_acc*100,xgb_acc*100]
     bar_colors=['#555555','#888888','#888888']
-    best_idx=model_accs.index(max(model_accs))
+    best_idx=int(np.argmax(model_accs))
     bar_colors[best_idx]='#D50A0A'
     model_labels=[f"{n} ✅" if i==best_idx else n for i,n in enumerate(model_names)]
 
@@ -378,7 +401,7 @@ This makes the NFL far more unpredictable than most other sports leagues, which 
         annotation_text='Random guessing (50%)',annotation_font_color='#aaa',
         annotation_position='bottom right')
     fig_m.update_layout(**CHART_LAYOUT,
-        yaxis=dict(title='Accuracy (%)',range=[45,65],gridcolor='#333'),
+        yaxis=dict(title='Games correctly predicted (%)',range=[45,65],gridcolor='#333'),
         xaxis=dict(gridcolor='#333'),height=380)
     st.plotly_chart(fig_m,use_container_width=True)
 
@@ -387,43 +410,57 @@ This makes the NFL far more unpredictable than most other sports leagues, which 
     with c2: st.metric("Random Forest",f"{rf_acc:.2%}")
     with c3:
         delta=xgb_acc-lr_acc
-        st.metric("XGBoost",f"{xgb_acc:.2%}",
-            delta=f"{delta:+.2%} vs Logistic Regression")
+        st.metric("XGBoost",f"{xgb_acc:.2%}",delta=f"{delta:+.2%} vs Logistic Regression")
 
     takeaway(f"""
-The highest-scoring model is highlighted in red and used for all predictions on this site.
-All three models beat random guessing (50%), which is the absolute baseline — a model that just flips a coin on every game.
-The NFL's parity means even professional forecasting tools sit in the 58–60% range, so these results are genuinely competitive.
+The chart shows the percentage of the ~1,900 test games each model correctly predicted the winner of.
+All three models beat random guessing (50%), which would be the result of flipping a coin on every game.<br><br>
+<b>Why XGBoost even if its accuracy is similar to or slightly below Logistic Regression on this dataset?</b><br>
+On 6 stats, Logistic Regression is hard to beat — it is simple and works well when there is not much data to work with.
+However, XGBoost was chosen because its importance scores make every prediction explainable (see the next section),
+and because as this project grows — with more stats like injury data, weather, and QB ratings added —
+XGBoost will become meaningfully more accurate while Logistic Regression will plateau.
+Think of it as choosing the tool that is best for where the project is going, not just where it is today.
+<br><br>
+<b>What does parity mean?</b><br>
+Parity in the NFL means the league is deliberately designed so every team has a roughly equal chance of competing each season.
+This is achieved through the draft (where the worst teams get first pick of new college talent each year)
+and the salary cap (which limits how much any team can spend, preventing the richest clubs from buying all the best players).
+This makes the NFL far harder to predict than most other sports leagues.
 """)
 
-    # ── 2. Which Stats Matter Most? ───────────
+    # ── 2. Which Stats Matter Most? ──────────
     st.markdown("---")
     st.subheader("🔍 2. Which Stats Matter Most to the Model?")
 
-    explainer("""
-<b>What are feature importance scores?</b><br>
-When XGBoost makes a prediction, it doesn't rely on all 6 stats equally — some are far more influential than others.
-After training on tens of thousands of games, XGBoost calculates an <b>importance score</b> for each stat,
-which measures how much that stat contributed to the model's decisions across every prediction it made during training.<br><br>
-
-The score is a number between 0 and 1. A score of 0.35 means that stat was responsible for 35% of the model's decision-making.
+    explainer(f"""
+<b>How does XGBoost use the 6 stats inside its decision trees?</b><br>
+All three models use the same 6 stats, but XGBoost uses them differently.
+In each decision tree, XGBoost asks a series of yes/no questions about those stats — for example:
+<i>"Is the home team's win rate above 55%?"</i> or <i>"Is the away team's average points conceded above 25 per game?"</i>
+After building hundreds of these trees and correcting mistakes across them,
+XGBoost calculates how often each stat was used in those questions and how much it improved the prediction each time it was used.
+That produces an <b>importance score</b> for each stat — a number between 0 and 1 showing how much that stat contributed to the model's decisions overall.
 All six scores add up to 1.0 (100%).<br><br>
 
 <b>What each stat means:</b><br>
-• <b>Home/Away Win Rate</b> — that team's overall percentage of games won across all their historical games in the dataset<br>
-• <b>Home/Away Avg Points Scored</b> — how many points that team scores per game on average<br>
-• <b>Home/Away Avg Points Conceded</b> — how many points that team lets in per game on average<br><br>
+• <b>Home Team Win Rate</b> — the home team's overall percentage of games won, across all their games recorded in the dataset since 1990<br>
+• <b>Away Team Win Rate</b> — the away team's overall percentage of games won, across all their games recorded in the dataset since 1990<br>
+• <b>Home Team Avg Points Scored</b> — how many points the home team scores per game on average, across all their games since 1990<br>
+• <b>Away Team Avg Points Scored</b> — how many points the away team scores per game on average, across all their games since 1990<br>
+• <b>Home Team Avg Points Conceded</b> — how many points the home team lets in per game on average, across all their games since 1990<br>
+• <b>Away Team Avg Points Conceded</b> — how many points the away team lets in per game on average, across all their games since 1990<br><br>
 
-<b>How does the model know about things like a "high-powered offence" or a "leaky defence"?</b><br>
-Those are exactly what the points scored and points conceded stats measure.
-If a team averages 30+ points per game, the model sees that as a high-powered offence.
-If a team concedes 28+ points per game, the model sees that as a leaky defence.
-It learns from 35 years of data that certain combinations of these numbers — for example, a high-scoring offence facing a leaky defence — tend to predict winners more reliably than others.<br><br>
-
-<b>Why might Away Win Rate rank higher than Home Win Rate?</b><br>
-Winning away from home is genuinely harder — no home crowd, unfamiliar stadium, travel fatigue.
+<b>Why might Away Team Win Rate rank higher than Home Team Win Rate?</b><br>
+Winning away from home is harder — no home crowd, unfamiliar stadium, travel fatigue.
 A team that wins consistently on the road is usually a better all-round team than one that only performs well at home.
-So the model has learned that away win rate is a stronger signal of true team quality.
+The model has learned from 35 years of data that away win rate is a stronger indicator of true team quality.<br><br>
+
+<b>What does it mean when a high-scoring team faces a team with a leaky defence?</b><br>
+If a team averages 30+ points scored per game, they have a high-powered offence.
+If the opposing team concedes 28+ points per game, they have a leaky defence.
+When a high-powered offence faces a leaky defence, the model has learned from historical data that the attacking team is far more likely to win —
+because that pattern has repeated consistently across 35 seasons.
 """)
 
     idx=np.argsort(importances)[::-1]
@@ -437,11 +474,12 @@ So the model has learned that away win rate is a stronger signal of true team qu
         textposition='outside',textfont=dict(color='white')))
     fig_fi.update_layout(**CHART_LAYOUT,
         xaxis=dict(title='Importance Score (all six add up to 1.0)',
-                   gridcolor='#333',range=[0,max(s_fi)*1.3]),
-        yaxis=dict(gridcolor='#333',autorange='reversed'),height=400)
+                   gridcolor='#333',range=[0,max(s_fi)*1.35]),
+        yaxis=dict(gridcolor='#333',autorange='reversed'),
+        height=420,margin=dict(l=220,r=80,t=30,b=50))
     st.plotly_chart(fig_fi,use_container_width=True)
 
-    # ── 3. Season-by-Season ───────────────────
+    # ── 3. Season-by-Season ──────────────────
     st.markdown("---")
     st.subheader("📈 3. How Accurate Was the Model in Each NFL Season?")
 
@@ -451,14 +489,14 @@ This shows the percentage of games the model correctly predicted out of all NFL 
 For example, if a season had 256 games and the model correctly predicted 153 of them, that season's accuracy would be 59.8%.<br><br>
 
 <b>Why start from 2000?</b><br>
-Pre-2000 NFL data comes from a different era of the sport — fewer teams, different rules, different gameplay styles.
+Pre-2000 NFL data comes from a different era of the sport — fewer teams, different rules, different gameplay.
 Including those seasons in a year-by-year comparison would make the chart misleading, so it starts from 2000 for consistency.
 That data is still used in model training, just not shown here.<br><br>
 
 <b>Why does the number of upsets change year to year?</b><br>
 Some seasons naturally produce more upsets than others due to factors the model cannot see:
-a star quarterback getting injured mid-season, a team underperforming under a new coaching system,
-or an unexpected run of form from a team that looked average on paper.
+a star quarterback getting injured mid-season, a coaching system that takes time to click, or a dark horse team
+rising from average on paper to a genuine Super Bowl contender.
 In the 2024 season for example, Lamar Jackson (Ravens), Joe Burrow (Bengals), and Patrick Mahomes (Chiefs)
 all missed games through injury — three of the most predictable teams in the league suddenly became much harder to forecast.<br><br>
 
@@ -473,15 +511,12 @@ all missed games through injury — three of the most predictable teams in the l
             y=season_acc_df['accuracy']*100,
             mode='lines+markers',
             line=dict(color='#D50A0A',width=3),
-            marker=dict(size=9,color='#D50A0A',line=dict(color='white',width=1)),
+            marker=dict(size=10,color='#D50A0A',line=dict(color='white',width=1.5)),
             customdata=season_acc_df['note'],
             hovertemplate='<b>Season: %{x}</b><br>Accuracy: %{y:.1f}%<br>%{customdata}<extra></extra>'
         ))
-        fig_s.add_hline(y=50,line_dash='dash',line_color='#555',
-            annotation_text='Random guessing (50%)',
-            annotation_font_color='#aaa',annotation_position='bottom right')
         fig_s.add_hline(y=avg_acc*100,line_dash='dot',line_color='#4a90d9',
-            annotation_text=f'Overall average ({avg_acc:.1%})',
+            annotation_text=f'Season average ({avg_acc:.1%})',
             annotation_font_color='#aaa',annotation_position='top right')
         fig_s.update_layout(**CHART_LAYOUT,
             xaxis=dict(title='NFL Season',gridcolor='#333',dtick=2,
@@ -489,25 +524,25 @@ all missed games through injury — three of the most predictable teams in the l
                 range=[season_acc_df['season'].min()-0.5,
                        season_acc_df['season'].max()+0.5]),
             yaxis=dict(title='Games correctly predicted (%)',
-                       range=[45,75],gridcolor='#333',dtick=5),
-            height=450,margin=dict(t=40,b=60,l=60,r=60))
+                       range=[75,95],gridcolor='#333',dtick=5),
+            height=460,margin=dict(t=50,b=60,l=70,r=80))
         st.plotly_chart(fig_s,use_container_width=True)
 
         best=season_acc_df.loc[season_acc_df['accuracy'].idxmax()]
         worst=season_acc_df.loc[season_acc_df['accuracy'].idxmin()]
         c1,c2,c3=st.columns(3)
-        with c1: st.metric("Overall Average",f"{avg_acc:.1%}")
+        with c1: st.metric("Season Average",f"{avg_acc:.1%}")
         with c2: st.metric("Best Season",f"{int(best['season'])} ({best['accuracy']:.1%})")
         with c3: st.metric("Toughest Season",f"{int(worst['season'])} ({worst['accuracy']:.1%})")
 
         takeaway(f"""
-The model beats random guessing in every single season — the red line stays above the 50% dashed baseline throughout.
+On average, the model correctly predicts <b>{avg_acc:.1%}</b> of games in an NFL season.
 Its toughest season was <b>{int(worst['season'])}</b> and its best was <b>{int(best['season'])}</b>.
 The accuracy goes up and down year to year because the number of upsets in the NFL goes up and down —
 a more predictable season produces a higher score, not a better model.
 """)
 
-    # ── 4. Confidence ─────────────────────────
+    # ── 4. Confidence ────────────────────────
     st.markdown("---")
     st.subheader("🎯 4. Does the Model's Confidence Level Actually Mean Anything?")
 
@@ -518,20 +553,34 @@ For example: home team 64%, away team 36%.
 That means the model believes that if you played this exact game 100 times, the home team would win around 64 of them.<br><br>
 
 <b>The three confidence levels:</b><br>
-• 🔴 <b>Low Confidence</b> — the model gives something like 53% vs 47%. A gap of less than 7 percentage points. The model sees this as almost a coin flip and has very little conviction either way.<br>
+• 🔴 <b>Low Confidence</b> — the model gives something like 53% vs 47%. A gap of less than 7 percentage points. The model sees this as almost a coin flip.<br>
 • 🟡 <b>Medium Confidence</b> — something like 57% vs 43%. A gap between 7 and 15 percentage points. The model leans one way but acknowledges real uncertainty.<br>
 • 🟢 <b>High Confidence</b> — something like 66% vs 34%. A gap of more than 15 percentage points. The model strongly favours one team.<br><br>
 
 <b>What do the numbers on the chart mean?</b><br>
-The model was tested on roughly 1,900 games drawn from seasons between 1990 and 2025 (games before 1990 were not used).
-Each game was placed into one of the three confidence buckets above.<br>
-The <b>percentage on each bar</b> is how accurately the model predicted games within that bucket —
-for example, if the green bar shows 61%, it means the model correctly predicted 61% of the games it was highly confident about.<br>
-The <b>number in brackets</b> (e.g. "312 games") shows how many of those ~1,900 test games fell into that confidence bucket.
+The model was tested on roughly 1,900 games from NFL seasons between 1990 and 2025 (games before 1990 were not used).
+Each of those games was placed into one of the three confidence buckets above based on how confident the model was in its prediction.<br><br>
+
+The <b>percentage on each bar</b> shows how often the model was actually correct within that confidence level.
+The <b>number in brackets</b> shows how many of the ~1,900 test games fell into that bucket.
 """)
 
     if conf_data:
         cdf=pd.DataFrame(conf_data)
+
+        # Build dynamic example using actual green bucket
+        green_row=cdf[cdf['confidence']=='🟢 High Confidence']
+        if not green_row.empty:
+            g_games=int(green_row['games'].values[0])
+            g_acc=float(green_row['accuracy'].values[0])
+            g_correct=int(round(g_games*g_acc))
+            example_text=f"For example, out of the ~1,900 test games, XGBoost had high confidence in <b>{g_games}</b> of them. From those {g_games} games, it correctly predicted the winner in <b>{g_correct}</b> of them — an accuracy of <b>{g_acc:.1%}</b>."
+        else:
+            example_text=""
+
+        if example_text:
+            explainer(example_text)
+
         fig_c=go.Figure(go.Bar(
             x=cdf['confidence'],
             y=cdf['accuracy']*100,
@@ -548,51 +597,55 @@ The <b>number in brackets</b> (e.g. "312 games") shows how many of those ~1,900 
 
         takeaway("""
 If this chart is working correctly, the green bar (High Confidence) will be noticeably taller than the red bar (Low Confidence).
-That confirms that when the model says it's confident, it really is more likely to be right —
+That confirms that when the model says it is confident, it really is more likely to be right —
 and when it flags a game as nearly a coin flip, it genuinely is harder to call.
 """)
 
-    # ── 5. Confusion Matrix ───────────────────
+    # ── 5. Confusion Matrix ──────────────────
     st.markdown("---")
     st.subheader("🔢 5. Where Does the Model Go Wrong?")
 
     infobox("""
 <b>Why is everything framed as home team vs away team?</b><br>
 In every single NFL game ever played, there is one home team and one away team.
-That distinction — home or away — is the only thing that is always different between the two sides going into any game.
-Because of this, the model is built around one specific question: <b>will the home team win?</b>
-Every prediction is either "yes, home team wins" or "no, away team wins."
-Note: NFL ties are extremely rare (fewer than 1 in 500 games) and are not included in the dataset.<br><br>
+It is the only thing that is always different between the two sides going into any game — one team is on their home turf, the other is not.
+Because of this, the model is built to answer one question: <b>will the home team win?</b>
+Every prediction is either "yes, home team wins" or "no, away team wins."<br><br>
+
+NFL ties do occur — roughly once every 200 games. This is a known limitation of the current model,
+which was built to predict a binary outcome (win or lose). Including ties as a third outcome is a planned future improvement.<br><br>
 
 <b>Why do home teams win more often?</b><br>
 Across 35 seasons of data, home teams have won approximately 57% of all games. The main reasons are:<br>
 • <b>Crowd noise</b> — a loud home crowd disrupts the away team's ability to communicate at the line of scrimmage<br>
 • <b>No travel</b> — away teams often travel the day before, disrupting sleep and routine<br>
-• <b>Stadium familiarity</b> — home teams train near their own stadium and know its quirks (turf type, wind, sun angles)
+• <b>Stadium familiarity</b> — home teams know their own stadium's quirks (turf type, wind, sun angles)<br><br>
+
+<b>Important:</b> While playing at home gives an advantage, if the away team is superior in other factors —
+such as a significantly higher win rate or a much stronger offence — the model will still favour the away team to win.
+Home field advantage is one factor among six, not an override.
 """)
 
     tn,fp,fn,tp=cm.ravel()
     total_all=tn+tp+fp+fn
     total_right=tn+tp
 
-    st.markdown(f"""
-Out of all **{total_all:,} test games**, the model divided its predictions into 4 groups based on whether it thought the home or away team would win. Here are the results:
-""")
+    st.markdown(f"Out of all **{total_all:,} test games**, the model divided its predictions into 4 groups based on whether it thought the home or away team would win. Here are the results:")
 
     fig_cm=go.Figure(go.Heatmap(
         z=[[tn,fp],[fn,tp]],
         x=['Model predicted: Away win','Model predicted: Home win'],
         y=['Reality: Away team won','Reality: Home team won'],
         colorscale=[[0,'#0a0a0a'],[1,'#D50A0A']],
-        text=[[f"✅ Correct\nAway win predicted & away won\n{tn:,} games",
-               f"❌ Wrong\nHome win predicted, away won\n{fp:,} games"],
-              [f"❌ Wrong\nAway win predicted, home won\n{fn:,} games",
-               f"✅ Correct\nHome win predicted & home won\n{tp:,} games"]],
+        text=[[f"✅ Correct\nAway win predicted\n& away won\n{tn:,} games",
+               f"❌ Wrong\nHome win predicted\nbut away won\n{fp:,} games"],
+              [f"❌ Wrong\nAway win predicted\nbut home won\n{fn:,} games",
+               f"✅ Correct\nHome win predicted\n& home won\n{tp:,} games"]],
         texttemplate='%{text}',
-        textfont=dict(size=12,color='white'),
+        textfont=dict(size=10,color='white'),
         showscale=False))
-    fig_cm.update_layout(**CHART_LAYOUT,height=420,
-        xaxis=dict(side='top'),margin=dict(t=120,b=40,l=180,r=20))
+    fig_cm.update_layout(**CHART_LAYOUT,height=440,
+        xaxis=dict(side='top'),margin=dict(t=130,b=40,l=180,r=20))
     st.plotly_chart(fig_cm,use_container_width=True)
 
     c1,c2,c3,c4=st.columns(4)
@@ -603,12 +656,11 @@ Out of all **{total_all:,} test games**, the model divided its predictions into 
 
     takeaway(f"""
 Out of {total_all:,} test games, the model correctly predicted <b>{total_right:,}</b> outcomes.
-It correctly called home wins more than twice as often as it correctly called away wins ({tp:,} vs {tn:,}) —
-which reflects the real-world pattern that home teams win around 57% of games.
-The model has learned to lean toward the home team, and that leans pays off more often than not.
+It correctly called home wins more than twice as often as it correctly called away wins ({tp:,} vs {tn:,}).
+This reflects the real-world pattern that home teams win around 57% of games — the model has learned this from the data.
 """)
 
-    # ── 6. ROC Curve ──────────────────────────
+    # ── 6. ROC Curve ────────────────────────
     st.markdown("---")
     st.subheader("📉 6. How Well Can the Model Separate Winners from Losers?")
 
@@ -617,10 +669,10 @@ The model has learned to lean toward the home team, and that leans pays off more
 A ROC curve (Receiver Operating Characteristic) is a standard way in data science to measure how well a model separates two outcomes —
 in this case, games the home team won versus games the away team won.<br><br>
 
-We will work through this section together to make it as clear as possible.
+We are working through this section together to make it as clear as possible.
 For now, the headline number is the <b>AUC score: {roc_auc:.3f}</b>.<br><br>
 
-AUC stands for <b>Area Under the Curve</b>. The score runs from 0.5 (completely useless — no better than guessing) to 1.0 (perfect — gets every game right).
+AUC stands for <b>Area Under the Curve</b>. The score runs from 0.5 (no better than guessing) to 1.0 (perfect).
 Our score of {roc_auc:.3f} places this model in the same range as professional NFL forecasting tools.
 """)
 
@@ -648,32 +700,32 @@ Our score of {roc_auc:.3f} places this model in the same range as professional N
     )
     st.plotly_chart(fig_roc,use_container_width=True)
 
-    # ── 7. The Data ───────────────────────────
+    # ── 7. The Data ──────────────────────────
     st.markdown("---")
     st.subheader("📦 7. The Data Behind the Model")
-
-    explainer("""
-<b>Where does the data come from?</b><br>
-All game results come from the <b>NFL Scores & Betting Dataset</b> on Kaggle (spreadspoke_scores.csv).
-It contains verified historical NFL game results going back to 1966. This model uses games from 1990 onwards.<br><br>
-
-<b>How was the overall home win percentage calculated?</b><br>
-For every game in the dataset, if the home team's score was higher than the away team's score, it was counted as a home win.
-The percentage is: <i>total home wins ÷ total games</i>.
-For example, if home teams won 5,400 out of 9,455 games, the home win rate is 5,400 ÷ 9,455 = 57.1%.
-""")
 
     total_games=len(scores)
     hw_pct=scores['home_win'].mean()
     total_hw=int(scores['home_win'].sum())
 
+    explainer(f"""
+<b>Where does the data come from?</b><br>
+All game results come from the <b>NFL Scores & Betting Dataset</b> on Kaggle (spreadspoke_scores.csv).
+It contains verified historical NFL game results going back to 1966. This model uses games from 1990 onwards.<br><br>
+
+<b>How was the overall home win percentage calculated?</b><br>
+For every game in the dataset, if the home team scored more points than the away team, it was recorded as a home win.
+The percentage is: total home wins ÷ total games.<br>
+<b>{total_hw:,} home wins ÷ {total_games:,} total games = {hw_pct:.1%}</b><br><br>
+
+Yes — home teams have won {hw_pct:.0%} out of every 100 games played in this dataset.
+""")
+
     c1,c2,c3,c4=st.columns(4)
     with c1: st.metric("Total Games",f"{total_games:,}")
     with c2: st.metric("Seasons Covered","1990–2025")
-    with c3: st.metric("Home Wins",f"{total_hw:,}")
+    with c3: st.metric("Total Home Wins",f"{total_hw:,}")
     with c4: st.metric("Home Win Rate",f"{hw_pct:.1%}")
-
-    st.markdown(f"**{hw_pct:.1%}** = {total_hw:,} home wins ÷ {total_games:,} total games. Yes — home teams have won {hw_pct:.0%} of every 100 games in this dataset.")
 
     st.markdown("---")
     st.markdown("#### 🏟️ Has Home Field Advantage Changed Over Time?")
@@ -686,25 +738,30 @@ completing the modern NFL as it exists today.<br><br>
 
 <b>Seasons covered:</b> 2002–2009 (8 seasons), 2010–2019 (10 seasons), 2020–2025 (6 seasons). Total: 24 seasons.<br><br>
 
-<b>How was the home win % calculated for each period?</b><br>
-Same method as above: total home wins in that period ÷ total games in that period.
-The number of games in each bar is shown in brackets so you can see exactly what it is based on.<br><br>
-
-<b>Source:</b> Calculated directly from the Kaggle spreadspoke_scores.csv dataset.
+<b>How was each percentage calculated?</b><br>
+Same method as above: total home wins in that period ÷ total games in that period. The working is shown below each bar.
 """)
+
+    # Build bar text showing the working for each period
+    bar_texts=[]
+    for _,r in period_hw.iterrows():
+        hw_count=int(r['Home Wins'])
+        g_count=int(r['Games'])
+        pct=r['Home Win Rate']
+        bar_texts.append(f"{pct:.1%}\n({hw_count:,} wins ÷ {g_count:,} games)")
 
     fig_p=go.Figure(go.Bar(
         x=period_hw['Period'],
         y=period_hw['Home Win Rate']*100,
         marker_color='#013369',
-        text=[f"{r['Home Win Rate']:.1%}<br>({r['Games']:,} games)" for _,r in period_hw.iterrows()],
-        textposition='outside',textfont=dict(color='white')))
+        text=bar_texts,
+        textposition='outside',textfont=dict(color='white',size=12)))
     fig_p.add_hline(y=50,line_dash='dash',line_color='#555',
         annotation_text='50% — no home advantage',
         annotation_font_color='#aaa',annotation_position='bottom right')
     fig_p.update_layout(**CHART_LAYOUT,
-        yaxis=dict(title='Home Win %',range=[0,70],gridcolor='#333'),
-        xaxis=dict(gridcolor='#333'),height=360)
+        yaxis=dict(title='Home Win %',range=[0,75],gridcolor='#333'),
+        xaxis=dict(gridcolor='#333'),height=400)
     st.plotly_chart(fig_p,use_container_width=True)
 
     takeaway("""
@@ -716,20 +773,20 @@ removing crowd noise as a factor for an entire season.
 # ─── TAB 4 ────────────────────────────────────
 with tab4:
     st.subheader("ℹ️ How The Model Works")
-    st.markdown(f"""
+    st.markdown("""
 ### The Data
 Trained on NFL games from 1990 to 2025. Source: Kaggle spreadspoke_scores.csv.
 
 ### The 6 Stats Used
-- 🏠 Home team historical win rate
-- ✈️ Away team historical win rate
-- 🏈 Home team average points scored per game
-- 🏈 Away team average points scored per game
-- 🛡️ Home team average points conceded per game
-- 🛡️ Away team average points conceded per game
+- 🏠 Home team historical win rate (all games since 1990)
+- ✈️ Away team historical win rate (all games since 1990)
+- 🏈 Home team average points scored per game (since 1990)
+- 🏈 Away team average points scored per game (since 1990)
+- 🛡️ Home team average points conceded per game (since 1990)
+- 🛡️ Away team average points conceded per game (since 1990)
 
 ### The Model
-Three models were tested — the most accurate is used for predictions. See the **🧪 Data Science** tab for the full breakdown.
+XGBoost was chosen to power predictions. Three models were tested — see the **🧪 Data Science** tab for the full breakdown.
 
 ### Confidence Levels
 - 🟢 **High Confidence** — probability gap ≥ 15%
@@ -737,7 +794,7 @@ Three models were tested — the most accurate is used for predictions. See the 
 - 🔴 **Low Confidence** — probability gap < 7%
 
 ### Limitations
-Does not currently account for: injuries, weather, trades, coaching changes.
+Does not currently account for: injuries, weather, trades, coaching changes, or NFL ties.
 
 *Built by NFLNerd | Data: Kaggle spreadspoke_scores.csv (1990–2025)*
 """)
