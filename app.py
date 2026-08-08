@@ -3,7 +3,7 @@ import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, confusion_matrix, roc_curve, auc
+from sklearn.metrics import accuracy_score, confusion_matrix, roc_curve, auc, f1_score
 from xgboost import XGBClassifier
 import plotly.graph_objects as go
 import numpy as np
@@ -313,6 +313,10 @@ def load_model():
     rf_acc  = accuracy_score(y_test,rf.predict(X_test))
     xgb_acc = accuracy_score(y_test,xgb.predict(X_test))
 
+    lr_f1  = f1_score(y_test,lr.predict(X_test))
+    rf_f1  = f1_score(y_test,rf.predict(X_test))
+    xgb_f1 = f1_score(y_test,xgb.predict(X_test))
+
     season_notes={
         2004:"2004 — An unusually balanced season with no dominant team.",
         2007:"2007 — The undefeated Patriots made this one of the most predictable seasons in memory.",
@@ -349,6 +353,7 @@ def load_model():
     period_hw.columns=['Period','Home Win Rate','Games','Home Wins']
 
     return (xgb,scores,get_team_stats,xgb_acc,lr_acc,rf_acc,
+            xgb_f1,lr_f1,rf_f1,
             pd.DataFrame(season_acc),cm,fpr,tpr,roc_auc,
             conf_data,feature_names,importances,X_test,y_test,period_hw)
 
@@ -393,6 +398,7 @@ st.title("NFL Game Predictor")
 
 with st.spinner("Loading model..."):
     (model,scores,get_team_stats,xgb_acc,lr_acc,rf_acc,
+     xgb_f1,lr_f1,rf_f1,
      season_acc_df,cm,fpr,tpr,roc_auc,
      conf_data,feature_names,importances,
      X_test,y_test,period_hw) = load_model()
@@ -832,6 +838,26 @@ adding QB passer rating, days of rest, weather conditions, and injury reports wo
     with c3:
         delta=xgb_acc-lr_acc
         st.metric("XGBoost",f"{xgb_acc:.2%}",delta=f"{delta:+.2%} vs Logistic Regression")
+
+    st.markdown("#### 📐 F1 Scores")
+    explainer("""
+<b>What is an F1 score?</b><br>
+Accuracy alone can be misleading. If the model just predicted "home team wins" every single game,
+it would be right ~57% of the time — but it would never correctly predict an away win.
+The F1 score catches this problem by measuring how well the model balances predicting <i>both</i> home wins and away wins correctly.<br><br>
+It combines two things:<br>
+• <b>Precision</b> — of all the games the model predicted as home wins, how many actually were home wins?<br>
+• <b>Recall</b> — of all the games that actually were home wins, how many did the model correctly identify?<br><br>
+The F1 score is the balance between the two, running from 0 (useless) to 1 (perfect).
+A higher F1 score means the model is doing a better job predicting both outcomes, not just defaulting to the more common one.
+""")
+
+    f1_df = pd.DataFrame({
+        'Model': ['Logistic Regression', 'Random Forest', f'XGBoost {"✅" if xgb_f1==max(lr_f1,rf_f1,xgb_f1) else ""}'],
+        'Accuracy': [f"{lr_acc:.2%}", f"{rf_acc:.2%}", f"{xgb_acc:.2%}"],
+        'F1 Score': [f"{lr_f1:.3f}", f"{rf_f1:.3f}", f"{xgb_f1:.3f}"],
+    })
+    st.dataframe(f1_df.set_index('Model'), use_container_width=True)
 
     takeaway(f"""
 The chart shows the percentage of ~1,900 test games each model correctly predicted the winner of.
