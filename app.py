@@ -352,10 +352,10 @@ def load_model():
     period_hw=scores_32.groupby('period',observed=True)['home_win'].agg(home_win_rate='mean',games='count',home_wins='sum').reset_index()
     period_hw.columns=['Period','Home Win Rate','Games','Home Wins']
 
-    return (xgb,scores,get_team_stats,xgb_acc,lr_acc,rf_acc,
+    return (lr,scores,get_team_stats,xgb_acc,lr_acc,rf_acc,
             xgb_f1,lr_f1,rf_f1,
             pd.DataFrame(season_acc),cm,fpr,tpr,roc_auc,
-            conf_data,feature_names,importances,X_test,y_test,period_hw)
+            conf_data,feature_names,importances,X_test,y_test,period_hw,lr)
 
 def get_recent_form(scores,team,n=5):
     hg=scores[scores['team_home']==team][['schedule_date','team_home','team_away','score_home','score_away']].copy()
@@ -401,9 +401,9 @@ with st.spinner("Loading model..."):
      xgb_f1,lr_f1,rf_f1,
      season_acc_df,cm,fpr,tpr,roc_auc,
      conf_data,feature_names,importances,
-     X_test,y_test,period_hw) = load_model()
+     X_test,y_test,period_hw,lr) = load_model()
 
-accuracy = xgb_acc
+accuracy = lr_acc
 all_teams = sorted(CURRENT_NFL_TEAMS)
 
 # ── Tabs ─────────────────────────────────────
@@ -736,40 +736,39 @@ The gap between those two numbers determines the confidence level:
 # TAB 6 — DATA SCIENCE
 # ════════════════════════════════════════════
 with tab6:
-    st.markdown("### 🧪 Data Science & Model Analysis")
-    st.markdown("This tab walks through how the NFL Game Predictor actually works — powered by a machine learning model trained on 35 years of data and over 9,000 games.")
-    st.markdown("---")
+    st.markdown("### 🧪 Data Science & Model Analysis – Mikail Atif")
+    st.markdown("The NFL Game Predictor is a machine learning model trained on over 9,000 games and 35 NFL seasons. This tab walks through everything behind the scenes — how it was built, what it learned, and how well it performs.")
 
-    st.subheader("❓ What is the NFL Game Predictor?")
+    st.markdown("---")
+    st.subheader("💡 What is a Machine Learning Model (ML)?")
     st.markdown("""
-The NFL Game Predictor is a tool that predicts the outcome of any NFL matchup.
-You select the two teams, and the model returns each team's probability of winning.
-Predictions are based on each team's historical performance data, going back to 1990.
+An ML Model uses previous data to predict future outcomes. Similar to how a weather app studies years of past weather patterns to predict tomorrow's forecast — my model does the same, but with NFL games.
 """)
 
     st.markdown("---")
-    st.subheader("💡 What is a Machine Learning Model?")
+    st.subheader("🎯 What is my ML Model trying to predict?")
     st.markdown("""
-A machine learning model uses previous data to predict future outcomes.
-Similar to how a weather app studies years of past weather patterns to predict tomorrow's forecast —
-our model does the same, but with NFL games.
+My model is trained on historical data to try and accurately predict which team will have the higher probability of winning any given NFL game. Rather than a simple yes or no, a probability is given — for example 64% win probability for the home team vs 36% win probability for the away team — so you can see how confident the model is in its prediction. How the model arrives at these probabilities will be explained later on.
 """)
 
     st.markdown("---")
-    st.subheader("📦 What Data Was the Model Trained On?")
-    explainer("""
-<b>Source:</b> NFL Scores & Betting Dataset on Kaggle (spreadspoke_scores.csv) — verified historical NFL game results from 1966 onwards. This model uses games from 1990 onwards.<br><br>
-<b>The 6 stats used for every game:</b><br>
-• <b>Home Team Win Rate</b> — the home team's overall win % across all their games since 1990<br>
-• <b>Away Team Win Rate</b> — the away team's overall win % across all their games since 1990<br>
-• <b>Home Team Avg Points Scored</b> — how many points the home team scores per game on average since 1990<br>
-• <b>Away Team Avg Points Scored</b> — how many points the away team scores per game on average since 1990<br>
-• <b>Home Team Avg Points Conceded</b> — how many points the home team lets in per game on average since 1990<br>
-• <b>Away Team Avg Points Conceded</b> — how many points the away team lets in per game on average since 1990<br><br>
-<b>Note:</b> Each team gets one overall win rate covering all their games — not separate home and away rates.
-The away team's win rate is particularly informative because winning on the road is harder,
-making it a stronger signal of true team quality.
+    st.subheader("📦 What historical data is my model trained on?")
+    st.markdown("""
+The historical data comes from Kaggle — a website where data scientists share free datasets. The NFL dataset contains thousands of game results going back to 1990, giving the model plenty of data to be trained on, to make it as accurate as possible.
+
+From all of that historical NFL data, the model takes 6 key stats from each game. The key stats are separated with 3 for the home team and 3 for the away team, and the same 6 stats are used for every single matchup, so every game is judged on the same criteria.
 """)
+
+    st.markdown("#### The 6 Stats used")
+    st.markdown("""
+1. **Home team historical win rate** — the percentage of all games the home team has won since 1990
+2. **Away team historical win rate** — the percentage of all games the away team has won since 1990
+3. **Home team average points scored** — how many points the home team scores per game on average since 1990
+4. **Away team average points scored** — how many points the away team scores per game on average since 1990
+5. **Home team average points conceded** — how many points the home team has conceded per game on average since 1990
+6. **Away team average points conceded** — how many points the away team has conceded per game on average since 1990
+""")
+
     total_games=len(scores); hw_pct=scores['home_win'].mean(); total_hw=int(scores['home_win'].sum())
     c1,c2,c3,c4=st.columns(4)
     with c1: st.metric("Total Games",f"{total_games:,}")
@@ -778,66 +777,24 @@ making it a stronger signal of true team quality.
     with c4: st.metric("Home Win Rate",f"{hw_pct:.1%}")
 
     st.markdown("---")
-    st.subheader("🤖 1. Which Model Performed Best?")
-    explainer("""
-<b>Three models were trained and tested against each other to find the best predictor of NFL game outcomes.</b>
-Each was given the same 6 stats for every game played from 1990–2025 and tested on ~1,900 games it had never seen before.
-The accuracy figure = the percentage of those test games each model correctly predicted the winner of.<br><br>
-
-<b>Logistic Regression</b> — assigns a weight to each of the 6 stats based on how useful it has been historically,
-combines them into a score per team, and predicts the higher-scoring team wins.
-It does not simply pick whoever has the highest single stat — all 6 are weighed simultaneously.<br><br>
-
-<b>Example — Kansas City Chiefs (Home) vs Philadelphia Eagles (Away):</b><br>
-<table style="color:#f0f0f0;border-collapse:collapse;width:100%;font-size:13px;margin:10px 0;">
-<tr style="border-bottom:1px solid #333;background:#1a1a1a;">
-  <th style="text-align:left;padding:8px;">Stat</th><th style="padding:8px;">Chiefs (Home)</th><th style="padding:8px;">Eagles (Away)</th><th style="padding:8px;">Model Weight</th>
-</tr>
-<tr style="border-bottom:1px solid #222;">
-  <td style="padding:8px;">Win Rate</td><td style="padding:8px;text-align:center;">62%</td><td style="padding:8px;text-align:center;">58%</td><td style="padding:8px;text-align:center;">×2.1 (most important)</td>
-</tr>
-<tr style="border-bottom:1px solid #222;background:#111;">
-  <td style="padding:8px;">Avg Points Scored</td><td style="padding:8px;text-align:center;">27.4</td><td style="padding:8px;text-align:center;">25.8</td><td style="padding:8px;text-align:center;">×0.8</td>
-</tr>
-<tr style="border-bottom:1px solid #222;">
-  <td style="padding:8px;">Avg Points Conceded</td><td style="padding:8px;text-align:center;">20.1</td><td style="padding:8px;text-align:center;">22.3</td><td style="padding:8px;text-align:center;">×0.6</td>
-</tr>
-</table>
-The model multiplies each stat by its weight, combines them into a total score, and predicts the team with the higher score wins.
-The Chiefs' stronger win rate and lower points conceded pushes their score higher — Chiefs predicted to win.<br><br>
-
-<b>Random Forest</b> — builds hundreds of independent <b>decision trees</b>.
-A decision tree is a series of yes/no questions: <i>"Is the home team's win rate above 55%? → Yes → Is the away team's points conceded above 25? → Yes → Predict: home win."</i>
-Each tree asks slightly different questions. The Random Forest takes a <b>majority vote</b> — like asking 100 analysts to independently predict the same game and going with the majority.<br><br>
-
-<b>XGBoost</b> — also builds decision trees, but one at a time, where each new tree corrects the mistakes of the previous ones.
-Tree 1 might learn that teams with higher win rates tend to win — correct most of the time.
-But it fails when a lower win-rate team with a dominant offence beats a high win-rate team with a leaky defence.
-Tree 2 focuses on those failures, learning that points scored and conceded matter a lot when win rates are close.
-Each tree makes the prediction more refined. XGBoost then combines all tree outputs into a final probability for each team and predicts the higher probability team as the winner.<br><br>
-
-<b>Why XGBoost?</b> It produces importance scores — a breakdown of which stats had the most influence in determining the winner and how much influence each had.
-This makes every prediction explainable. It also scales better as the project grows:
-adding QB passer rating, days of rest, weather conditions, and injury reports would help XGBoost be more accurate and overtake both Random Forest and Logistic Regression by a larger margin.
+    st.subheader("🏆 Which Model did I pick to power the NFL Game Predictor?")
+    st.markdown("""
+To find the best model to power the NFL Game Predictor, I tested 3 different ML models — Logistic Regression, Random Forest, and XGBoost — comparing their accuracy and F1 scores. My results showed that Logistic Regression came out on top for both accuracy and F1 score, so I chose it to power the NFL Game Predictor.
 """)
 
+    # Dynamic chart — automatically highlights whichever model actually scores highest
     model_names=['Logistic Regression','Random Forest','XGBoost']
     model_accs=[lr_acc*100,rf_acc*100,xgb_acc*100]
-    bar_colors=['#555','#888','#888']
+    bar_colors=['#888','#888','#888']
     best_idx=int(np.argmax(model_accs))
     bar_colors[best_idx]='#D50A0A'
     model_labels=[f"{n} ✅" if i==best_idx else n for i,n in enumerate(model_names)]
+
     fig_m=go.Figure(go.Bar(x=model_labels,y=model_accs,marker_color=bar_colors,
         text=[f"{a:.2f}%" for a in model_accs],textposition='outside',textfont=dict(color='white',size=14)))
     fig_m.add_hline(y=50,line_dash='dash',line_color='#555',annotation_text='Random guessing (50%)',annotation_font_color='#aaa',annotation_position='bottom right')
     fig_m.update_layout(**CHART_LAYOUT,yaxis=dict(title='Games correctly predicted (%)',range=[45,65],gridcolor='#222'),xaxis=dict(gridcolor='#222'),height=380)
     st.plotly_chart(fig_m,use_container_width=True)
-    c1,c2,c3=st.columns(3)
-    with c1: st.metric("Logistic Regression",f"{lr_acc:.2%}")
-    with c2: st.metric("Random Forest",f"{rf_acc:.2%}")
-    with c3:
-        delta=xgb_acc-lr_acc
-        st.metric("XGBoost",f"{xgb_acc:.2%}",delta=f"{delta:+.2%} vs Logistic Regression")
 
     st.markdown("#### 📐 F1 Scores")
     explainer("""
@@ -852,24 +809,100 @@ The F1 score is the balance between the two, running from 0 (useless) to 1 (perf
 A higher F1 score means the model is doing a better job predicting both outcomes, not just defaulting to the more common one.
 """)
 
+    best_f1_idx = int(np.argmax([lr_f1, rf_f1, xgb_f1]))
+    f1_model_names = ['Logistic Regression', 'Random Forest', 'XGBoost']
+    f1_labels = [f"{n} ✅" if i==best_f1_idx else n for i,n in enumerate(f1_model_names)]
+
+    fig_f1 = go.Figure(go.Bar(
+        x=f1_labels, y=[lr_f1, rf_f1, xgb_f1],
+        marker_color=['#D50A0A' if i==best_f1_idx else '#888' for i in range(3)],
+        text=[f"{v:.3f}" for v in [lr_f1, rf_f1, xgb_f1]],
+        textposition='outside', textfont=dict(color='white', size=14)))
+    fig_f1.update_layout(**CHART_LAYOUT,
+        yaxis=dict(title='F1 Score (0–1)', range=[0,1], gridcolor='#222'),
+        xaxis=dict(gridcolor='#222'), height=380)
+    st.plotly_chart(fig_f1, use_container_width=True)
+
     f1_df = pd.DataFrame({
-        'Model': ['Logistic Regression', 'Random Forest', f'XGBoost {"✅" if xgb_f1==max(lr_f1,rf_f1,xgb_f1) else ""}'],
+        'Model': ['Logistic Regression', 'Random Forest', 'XGBoost'],
         'Accuracy': [f"{lr_acc:.2%}", f"{rf_acc:.2%}", f"{xgb_acc:.2%}"],
         'F1 Score': [f"{lr_f1:.3f}", f"{rf_f1:.3f}", f"{xgb_f1:.3f}"],
     })
     st.dataframe(f1_df.set_index('Model'), use_container_width=True)
 
-    takeaway(f"""
-The chart shows the percentage of ~1,900 test games each model correctly predicted the winner of.
-All three beat random guessing (50%) — the baseline of flipping a coin on every game.<br><br>
-<b>Why XGBoost even if its accuracy is similar to Logistic Regression?</b>
-On 6 stats, Logistic Regression is hard to beat — it is simple and works well with limited data.
-XGBoost was chosen because its importance scores make every prediction explainable (see below),
-and as more stats are added — injury data, weather, QB ratings — it will become meaningfully more accurate.<br><br>
-<b>What is parity?</b> The NFL is deliberately designed so every team has a roughly equal chance of competing each season,
-through the draft (worst teams pick first) and the salary cap (limits spending for all teams equally).
-This makes the NFL far harder to predict than most other sports leagues.
+    st.markdown("---")
+    st.subheader("📐 How Does Logistic Regression Work?")
+    explainer("""
+Logistic Regression combines all 6 team stats into a single calculation, then converts that into a probability of the home team winning. It works in two steps.<br><br>
+
+<b>Step 1 — Combine the 6 stats into one number, called z</b><br>
+During training, Logistic Regression works out a <b>weight</b> for each of the 6 stats — a number reflecting how useful that stat is for predicting a winner. It also calculates one extra fixed number called the <b>intercept</b>, which captures a simple fact: home teams win more often than away teams overall. So before even looking at either team's specific stats, the model starts with a slight lean toward the home team.<br><br>
+
+<b>z = intercept + (weight₁ × stat₁) + (weight₂ × stat₂) + (weight₃ × stat₃) + (weight₄ × stat₄) + (weight₅ × stat₅) + (weight₆ × stat₆)</b><br><br>
+
+The intercept and all 6 weights are fixed once training is complete — they never change. Only the specific team stats change from matchup to matchup.<br><br>
+
+<b>How are the weights actually calculated?</b><br>
+The model starts by guessing random weights, then tests them against thousands of past games it already knows the real result of. Where its predictions are wrong, it nudges each weight slightly in the direction that would have made the prediction more accurate. This happens thousands of times, with tiny adjustments each time, until the weights settle into stable values — the real ones shown below.<br><br>
+
+<b>Step 2 — Turn z into an actual probability</b><br>
+z on its own isn't a probability — it could be any number, positive or negative. To turn it into a sensible probability between 0% and 100%, it's run through a formula called the S-curve:<br><br>
+
+<b>Probability of home win = 1 ÷ (1 + e^(-z))</b><br><br>
+
+No matter how big or small z is, this formula always produces a result between 0% and 100% — a very negative z gets squeezed close to 0%, a very positive z gets squeezed close to 100%, and a z of exactly 0 lands at exactly 50%.
 """)
+
+    st.markdown("#### A Real Worked Example: Kansas City Chiefs (Home) vs Philadelphia Eagles (Away)")
+    st.markdown("This is a real game that Logistic Regression has calculated the probabilities for, using the real weights my model learned from training on 9,000+ NFL games, and the real historical stats for these two teams.")
+
+    lr_coefs = dict(zip(['home_win_rate','away_win_rate','home_avg_scored','away_avg_scored','home_avg_conceded','away_avg_conceded'], lr.coef_[0])) if 'lr' in dir() else None
+
+    weight_df = pd.DataFrame({
+        'Stat': ['Intercept','Home Team Win Rate','Away Team Win Rate','Home Team Avg Points Scored',
+                 'Away Team Avg Points Scored','Home Team Avg Points Conceded','Away Team Avg Points Conceded'],
+        'Weight': [f"{lr.intercept_[0]:+.4f}", f"{lr.coef_[0][0]:+.4f}", f"{lr.coef_[0][1]:+.4f}",
+                   f"{lr.coef_[0][2]:+.4f}", f"{lr.coef_[0][3]:+.4f}", f"{lr.coef_[0][4]:+.4f}", f"{lr.coef_[0][5]:+.4f}"]
+    })
+    st.dataframe(weight_df.set_index('Stat'), use_container_width=True)
+
+    ex_h_wr, ex_h_sc, ex_h_co = get_team_stats(scores, "Kansas City Chiefs", 2026)
+    ex_a_wr, ex_a_sc, ex_a_co = get_team_stats(scores, "Philadelphia Eagles", 2026)
+
+    stats_df = pd.DataFrame({
+        'Stat': ['Win Rate','Avg Points Scored','Avg Points Conceded'],
+        'Chiefs (Home)': [f"{ex_h_wr:.1%}", f"{ex_h_sc:.2f}", f"{ex_h_co:.2f}"],
+        'Eagles (Away)': [f"{ex_a_wr:.1%}", f"{ex_a_sc:.2f}", f"{ex_a_co:.2f}"],
+    })
+    st.dataframe(stats_df.set_index('Stat'), use_container_width=True)
+
+    ex_z = (lr.intercept_[0]
+            + lr.coef_[0][0]*ex_h_wr + lr.coef_[0][1]*ex_a_wr
+            + lr.coef_[0][2]*ex_h_sc + lr.coef_[0][3]*ex_a_sc
+            + lr.coef_[0][4]*ex_h_co + lr.coef_[0][5]*ex_a_co)
+    ex_prob_home = 1/(1+np.exp(-ex_z))
+
+    st.markdown(f"""
+**Step 1 — Calculating z:**
+```
+z = {lr.intercept_[0]:.4f} 
+    + ({lr.coef_[0][0]:.4f} × {ex_h_wr:.3f}) 
+    + ({lr.coef_[0][1]:.4f} × {ex_a_wr:.3f}) 
+    + ({lr.coef_[0][2]:.4f} × {ex_h_sc:.2f}) 
+    + ({lr.coef_[0][3]:.4f} × {ex_a_sc:.2f}) 
+    + ({lr.coef_[0][4]:.4f} × {ex_h_co:.2f}) 
+    + ({lr.coef_[0][5]:.4f} × {ex_a_co:.2f})
+
+z = {ex_z:.4f}
+```
+
+**Step 2 — Turning z into a probability:**
+```
+Probability of Chiefs winning = 1 ÷ (1 + e^(-{ex_z:.4f})) = {ex_prob_home:.1%}
+Probability of Eagles winning = {1-ex_prob_home:.1%}
+```
+""")
+    takeaway(f"So Logistic Regression predicts the **Chiefs have a {ex_prob_home:.1%} chance of winning**, and the **Eagles have a {1-ex_prob_home:.1%} chance** — using 100% real weights and real historical stats.")
 
     st.markdown("---")
     st.subheader("🔍 2. Which Stats Matter Most to the Model?")
