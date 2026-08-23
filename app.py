@@ -737,7 +737,7 @@ The gap between those two numbers determines the confidence level:
 # ════════════════════════════════════════════
 with tab6:
     st.markdown("### 🧪 Data Science & Model Analysis – Mikail Atif")
-    st.markdown("The NFL Game Predictor is a machine learning model trained on over 9,000 games and 35 NFL seasons. This tab walks through everything behind the scenes — how it was built, what it learned, and how well it performs.")
+    st.markdown("The NFL Game Predictor is a machine learning model trained and tested on over 9,000 games and 35 NFL seasons. This tab walks through everything behind the scenes — how it was built, what it learned, and how well it performs.")
 
     st.markdown("---")
     st.subheader("💡 What is a Machine Learning Model (ML)?")
@@ -754,9 +754,13 @@ My model is trained on historical data to try and accurately predict which team 
     st.markdown("---")
     st.subheader("📦 What historical data is my model trained on?")
     st.markdown("""
-The historical data comes from Kaggle — a website where data scientists share free datasets. The NFL dataset contains thousands of game results going back to 1990, giving the model plenty of data to be trained on, to make it as accurate as possible.
+The historical data comes from Kaggle — a website where data scientists share free datasets. The NFL dataset contains 9,455 game results, going back to 1990, giving the model plenty of data to be trained on, to make it as accurate as possible.
 
-From all of that historical NFL data, the model takes 6 key stats from each game. The key stats are separated with 3 for the home team and 3 for the away team, and the same 6 stats are used for every single matchup, so every game is judged on the same criteria.
+Before training, this data is split into two groups: about 7,500 games (80%) are used to actually train the model — this is where it learns the patterns of which teams are more likely to win the game (e.g. the team with the higher average points scored). The remaining 1,900 games (20%) are held back completely and never shown to the model during training. These are used afterwards in testing, to see how accurate the model really is, since it's being tested on games it has never seen before.
+
+The two teams in a matchup are distinguished as the home team and the away team. This is a major distinction that's always present between the two sides — true for every NFL game ever played.
+
+From all of that historical NFL data, the model takes 6 key stats from each game — split into 3 for the home team and 3 for the away team, reflecting that home/away distinction. The same 6 stats are used for every single matchup, so every game is judged on the same criteria.
 """)
 
     st.markdown("#### The 6 Stats used")
@@ -779,8 +783,10 @@ From all of that historical NFL data, the model takes 6 key stats from each game
     st.markdown("---")
     st.subheader("🏆 Which Model did I pick to power the NFL Game Predictor?")
     st.markdown("""
-To find the best model to power the NFL Game Predictor, I tested 3 different ML models — Logistic Regression, Random Forest, and XGBoost — comparing their accuracy and F1 scores. My results showed that Logistic Regression came out on top for both accuracy and F1 score, so I chose it to power the NFL Game Predictor.
+To find the best model to power the NFL Game Predictor, I tested 3 different ML models — Logistic Regression, Random Forest, and XGBoost — on how well they could correctly predict unseen NFL games, comparing their accuracy and F1 scores. My results showed that Logistic Regression came out on top for both accuracy and F1 score, so I chose it to power the NFL Game Predictor.
 """)
+
+    st.markdown("This bar chart shows the percentage of games each model correctly predicted, out of the 1,900 games held back for testing. The three models are closely matched, with less than 2% separating the best and worst performer, and only a 0.16% gap between Logistic Regression and XGBoost.")
 
     # Dynamic chart — automatically highlights whichever model actually scores highest
     model_names=['Logistic Regression','Random Forest','XGBoost']
@@ -799,15 +805,48 @@ To find the best model to power the NFL Game Predictor, I tested 3 different ML 
     st.markdown("#### 📐 F1 Scores")
     explainer("""
 <b>What is an F1 score?</b><br>
-Accuracy alone can be misleading. If the model just predicted "home team wins" every single game,
-it would be right ~57% of the time — but it would never correctly predict an away win.
-The F1 score catches this problem by measuring how well the model balances predicting <i>both</i> home wins and away wins correctly.<br><br>
-It combines two things:<br>
-• <b>Precision</b> — of all the games the model predicted as home wins, how many actually were home wins?<br>
-• <b>Recall</b> — of all the games that actually were home wins, how many did the model correctly identify?<br><br>
-The F1 score is the balance between the two, running from 0 (useless) to 1 (perfect).
-A higher F1 score means the model is doing a better job predicting both outcomes, not just defaulting to the more common one.
+Accuracy alone doesn't tell the whole story. If a model always predicted a home team win, no matter what - since home teams actually win around 57% of NFL games, this model would probably get 57 game predictions correct, purely by luck, giving it a 57% accuracy score, which is actually quite good. But this model would have a 0% accuracy at predicting away wins, and this wouldn't be captured by the accuracy score.<br><br>
+This is exactly the problem the F1 score is designed to catch. Accuracy alone can make an unbalanced model (which only predicts the more likely outcome) look better than it really is. The F1 score checks how well a model predicts both home wins and away wins correctly, not just how often it's right overall.<br><br>
+
+It combines two things:<br><br>
+
+<b>Precision</b> — out of all the games the model predicted as a specific outcome (either a home win or an away win), how many of those predictions were actually correct?<br><br>
+
+1. <b>Home Wins Example</b><br>
+LR predicted 40 games as home wins. Out of those 40 predictions, 30 were correct (home wins) → Precision = 30 ÷ 40 = 75%<br><br>
+
+2. <b>Away Wins Example</b><br>
+LR predicted 25 games as away wins. Out of those 25 predictions, 15 were correct (away wins) → Precision = 15 ÷ 25 = 60%<br><br>
+
+<b>Recall</b> — out of all the games that were actually a home win or an away win, how many did the model correctly predict?<br><br>
+
+1. <b>Home Wins Example</b><br>
+Out of 50 games that were all home wins, LR correctly predicted 35 of them → Recall = 35 ÷ 50 = 70%, the model predicted the other 15 as away games<br><br>
+
+2. <b>Away Wins Example</b><br>
+Out of 50 games that were all away wins, LR correctly predicted 25 of them → Recall = 25 ÷ 50 = 50%, the model predicted the other 25 as home games<br><br>
+
+<b>How to Calculate the F1 Score?</b><br>
+Formula for F1: 2 × (Precision × Recall) ÷ (Precision + Recall)<br><br>
+
+Calculating the F1 scores for both the Home and Away examples:<br><br>
+
+<b>Home Wins F1 Score</b><br>
+F1 = 2 × (0.75 × 0.70) ÷ (0.75 + 0.70)<br>
+F1 = 2 × 0.525 ÷ 1.45<br>
+F1 = 1.05 ÷ 1.45<br>
+F1 = 0.724<br><br>
+
+<b>Away Wins F1 Score</b><br>
+F1 = 2 × (0.60 × 0.50) ÷ (0.60 + 0.50)<br>
+F1 = 2 × 0.300 ÷ 1.1<br>
+F1 = 0.600 ÷ 1.1<br>
+F1 = 0.545<br><br>
+
+The F1 score ranges from 0 (useless) to 1 (perfect). A higher F1 score means the model is better at correctly predicting both home wins and away wins, making the model more balanced.
 """)
+
+    st.markdown("This bar chart shows the F1 scores for each of the ML Models we are testing. Similar to the accuracies of the three models, the F1 scores are all quite similar, with a range of just 0.066 - but with LR still coming out on top with the highest F1 score.")
 
     best_f1_idx = int(np.argmax([lr_f1, rf_f1, xgb_f1]))
     f1_model_names = ['Logistic Regression', 'Random Forest', 'XGBoost']
@@ -825,7 +864,6 @@ A higher F1 score means the model is doing a better job predicting both outcomes
 
     f1_df = pd.DataFrame({
         'Model': ['Logistic Regression', 'Random Forest', 'XGBoost'],
-        'Accuracy': [f"{lr_acc:.2%}", f"{rf_acc:.2%}", f"{xgb_acc:.2%}"],
         'F1 Score': [f"{lr_f1:.3f}", f"{rf_f1:.3f}", f"{xgb_f1:.3f}"],
     })
     st.dataframe(f1_df.set_index('Model'), use_container_width=True)
