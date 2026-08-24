@@ -956,13 +956,18 @@ the biggest influence on the model's predictions, regardless of which direction 
 Because of this, the weights aren't perfectly comparable "apples to apples" — a small weight on a big-scale stat can still matter a lot. What we can say confidently is that <b>Away Team Win Rate</b> has the single biggest weight of the 6, meaning it has the strongest pull on the model's predictions.
 """)
     idx=np.argsort(importances)[::-1]
-    s_fn=[feature_names[i] for i in idx]; s_fi=[importances[i] for i in idx]
-    fig_fi=go.Figure(go.Bar(x=s_fi,y=s_fn,orientation='h',marker_color='#013369',
-        text=[f"{v:.4f}" for v in s_fi],textposition='outside',textfont=dict(color='white')))
+    s_fn=[feature_names[i] for i in idx]
+    s_fi=[importances[i] for i in idx]                 # magnitude, used for bar length/sorting
+    s_signed=[lr.coef_[0][i] for i in idx]              # real signed weight, used for label + color
+    s_colors=['#00C853' if v>=0 else '#D50A0A' for v in s_signed]  # green = positive, red = negative
+
+    fig_fi=go.Figure(go.Bar(x=s_fi,y=s_fn,orientation='h',marker_color=s_colors,
+        text=[f"{v:+.4f}" for v in s_signed],textposition='outside',textfont=dict(color='white')))
     fig_fi.update_layout(**CHART_LAYOUT,
-        xaxis=dict(title='Weight Size (absolute value of the real LR coefficient)',gridcolor='#222',range=[0,max(s_fi)*1.35]),
+        xaxis=dict(title='Weight Size (bar length = size, label = real signed weight)',gridcolor='#222',range=[0,max(s_fi)*1.35]),
         yaxis=dict(gridcolor='#222',autorange='reversed'),height=420,margin=dict(l=230,r=80,t=30,b=50))
     st.plotly_chart(fig_fi,use_container_width=True)
+    st.caption("🟢 Green = positive weight (increases home team's win chance as the stat goes up)   🔴 Red = negative weight (decreases home team's win chance as the stat goes up)")
 
     st.markdown("---")
     st.subheader("📈 3. How Accurate Was the Model in Each NFL Season?")
