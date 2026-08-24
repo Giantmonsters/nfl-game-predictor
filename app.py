@@ -345,7 +345,7 @@ def load_model():
 
     feature_names=['Home Team Win Rate','Away Team Win Rate','Home Team Avg Points Scored',
                    'Away Team Avg Points Scored','Home Team Avg Points Conceded','Away Team Avg Points Conceded']
-    importances=xgb.feature_importances_
+    importances=np.abs(lr.coef_[0])  # use LR's real coefficients (magnitude), matching the worked example weights table
 
     scores_32=scores[scores['schedule_season']>=2002].copy()
     scores_32['period']=pd.cut(scores_32['schedule_season'],bins=[2001,2009,2019,2026],labels=['2002–2009','2010–2019','2020–2025'])
@@ -945,23 +945,22 @@ Probability of Eagles winning = {1-ex_prob_home:.1%}
     st.markdown("---")
     st.subheader("🔍 2. Which Stats Matter Most to the Model?")
     explainer(f"""
-XGBoost builds hundreds of decision trees using the 6 stats — asking yes/no questions like
-<i>"Is the home team's win rate above 55%?"</i> or <i>"Is the away team's points conceded above 25 per game?"</i>
-After building all those trees and correcting mistakes across them, XGBoost calculates how often each stat was used
-and how much it improved the prediction each time. That produces an <b>importance score</b> for each stat —
-a number between 0 and 1 showing how much it contributed to the model's decisions overall. All six add up to 1.0 (100%).<br><br>
+This chart uses the same real weights from the worked example above — Logistic Regression's 6 coefficients.
+The bars show each weight's <b>size</b> (ignoring whether it's positive or negative), so you can see which stats have
+the biggest influence on the model's predictions, regardless of which direction they push the outcome.<br><br>
 <b>What each stat means:</b><br>
 • <b>Home/Away Team Win Rate</b> — overall % of games won, across all their games since 1990<br>
 • <b>Home/Away Team Avg Points Scored</b> — average points scored per game since 1990. A team averaging 30+ has a high-powered offence.<br>
-• <b>Home/Away Team Avg Points Conceded</b> — average points let in per game since 1990. A team conceding 28+ has a leaky defence.<br>
-When a high-powered offence faces a leaky defence, the model has learned from 35 seasons that the attacking team is far more likely to win.
+• <b>Home/Away Team Avg Points Conceded</b> — average points let in per game since 1990. A team conceding 28+ has a leaky defence.<br><br>
+<b>A quick note on comparing these fairly:</b> win rate is measured on a 0–1 scale, while points scored/conceded are measured in much bigger numbers (points per game).
+Because of this, the weights aren't perfectly comparable "apples to apples" — a small weight on a big-scale stat can still matter a lot. What we can say confidently is that <b>Away Team Win Rate</b> has the single biggest weight of the 6, meaning it has the strongest pull on the model's predictions.
 """)
     idx=np.argsort(importances)[::-1]
     s_fn=[feature_names[i] for i in idx]; s_fi=[importances[i] for i in idx]
     fig_fi=go.Figure(go.Bar(x=s_fi,y=s_fn,orientation='h',marker_color='#013369',
-        text=[f"{v:.3f}" for v in s_fi],textposition='outside',textfont=dict(color='white')))
+        text=[f"{v:.4f}" for v in s_fi],textposition='outside',textfont=dict(color='white')))
     fig_fi.update_layout(**CHART_LAYOUT,
-        xaxis=dict(title='Importance Score (all six add up to 1.0)',gridcolor='#222',range=[0,max(s_fi)*1.35]),
+        xaxis=dict(title='Weight Size (absolute value of the real LR coefficient)',gridcolor='#222',range=[0,max(s_fi)*1.35]),
         yaxis=dict(gridcolor='#222',autorange='reversed'),height=420,margin=dict(l=230,r=80,t=30,b=50))
     st.plotly_chart(fig_fi,use_container_width=True)
 
