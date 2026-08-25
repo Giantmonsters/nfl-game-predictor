@@ -969,6 +969,16 @@ Because of this, the weights aren't perfectly comparable "apples to apples" — 
     st.plotly_chart(fig_fi,use_container_width=True)
     st.caption("🟢 Green = positive weight (increases home team's win chance as the stat goes up)   🔴 Red = negative weight (decreases home team's win chance as the stat goes up)")
 
+    st.markdown("""
+From this graph, we can see that Away Team Win Rate has the single biggest weight of the 6, meaning it has the strongest pull on the model's predictions. If the away team's win rate is high, the home team's chance of winning drops significantly — which makes sense: a better away team is naturally harder to beat.
+
+Then it's the Home Team Win Rate, and there is quite a big gap between Home vs Away Team Win Rate. This is because the home team already has a built-in advantage (playing at home), so they don't need a strong win rate to still be the favourites. The away team, however, has to overcome that disadvantage — so a good away win rate shows they're capable of winning both at home and on the road, whereas the home team doesn't need to prove that, since they already have home advantage against their opponent.
+
+There's then a noticeable drop-off to the remaining 4 stats. Win rate is the most directly meaningful stat — a team that wins often clearly has a higher chance of winning again. Points scored and points conceded are less reliable indicators on their own, just because you have higher points scored/conceded doesn't necessarily mean that you're a better team than your opponent. A team with low average points conceded might still have a weak offence, and a team with high average points scored might just be racking up points in "garbage time" — scoring late against bench players once a game is already decided, rather than actually having a high powered offence. Whereas, with the win rate, it is much more accurate in showing how good a team is, as it considers the entire football game, both offense and defence and the winner.
+
+The remaining 4 stats are all fairly close in weight, with a range of just 0.032. This makes sense, since points scored and points conceded are really just two sides of the same coin — one measures your own offence, the other measures your defence.
+""")
+
     st.markdown("---")
     st.subheader("📈 3. How Accurate Was the Model in Each NFL Season?")
     explainer("""
