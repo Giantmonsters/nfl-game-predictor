@@ -279,13 +279,9 @@ def load_model():
     scores = scores.sort_values('schedule_season')
     scores = scores[scores['schedule_season']>=1990].copy()
 
-    def get_team_stats(df, team, before_season, window_seasons=3):
-        # Only use the last `window_seasons` seasons of data (rolling window),
-        # instead of the team's entire history since 1990 — reflects current
-        # roster/era rather than diluting with decades-old results.
-        min_season = before_season - window_seasons
-        hg = df[(df['team_home']==team)&(df['schedule_season']<before_season)&(df['schedule_season']>=min_season)]
-        ag = df[(df['team_away']==team)&(df['schedule_season']<before_season)&(df['schedule_season']>=min_season)]
+    def get_team_stats(df, team, before_season):
+        hg = df[(df['team_home']==team)&(df['schedule_season']<before_season)]
+        ag = df[(df['team_away']==team)&(df['schedule_season']<before_season)]
         hw = (hg['score_home']>hg['score_away']).sum()
         aw = (ag['score_away']>ag['score_home']).sum()
         total = len(hg)+len(ag)
