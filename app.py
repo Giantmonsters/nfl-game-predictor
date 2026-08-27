@@ -324,12 +324,22 @@ def load_model():
         2022:"2022 — High-upset season. Multiple strong teams lost games they should have won.",
         2024:"2024 — Lamar Jackson, Joe Burrow and Patrick Mahomes all missed games through injury.",
     }
+    # Only use games from the real held-back test set (X_test/y_test), grouped by season,
+    # so accuracy reflects genuinely unseen games — not games the model was trained on.
+    test_seasons = seasons.loc[X_test.index]
+    lr_test_preds = lr.predict(X_test)
     season_acc=[]
-    for s in sorted(seasons.unique()):
+    for s in sorted(test_seasons.unique()):
         if s<2000: continue
-        mask=seasons==s
-        if mask.sum()<10: continue
-        season_acc.append({'season':int(s),'accuracy':accuracy_score(y[mask],xgb.predict(X[mask])),'note':season_notes.get(int(s),"")})
+        mask = (test_seasons==s).values
+        n_games = int(mask.sum())
+        if n_games<5: continue
+        season_acc.append({
+            'season':int(s),
+            'accuracy':accuracy_score(y_test[mask], lr_test_preds[mask]),
+            'games': n_games,
+            'note':season_notes.get(int(s),"")
+        })
 
     cm=confusion_matrix(y_test,xgb.predict(X_test))
     fpr,tpr,_=roc_curve(y_test,xgb.predict_proba(X_test)[:,1])
@@ -982,14 +992,21 @@ The remaining 4 stats are all fairly close in weight, with a range of just 0.032
     st.markdown("---")
     st.subheader("📈 3. How Accurate Was the Model in Each NFL Season?")
     explainer("""
-This shows the percentage of games the model correctly predicted out of all NFL games played in each individual season from 2000 to 2025.
-For example, if a season had 256 games and the model correctly predicted 153 of them, that season's accuracy would be 59.8%.<br><br>
-<b>Why does the number of upsets change year to year?</b>
-Some seasons produce more upsets due to factors the model cannot see: a star QB getting injured mid-season,
-a coaching system that takes time to click, or a dark horse team rising from average on paper to a genuine Super Bowl contender.
-In 2024, Lamar Jackson (Ravens), Joe Burrow (Bengals) and Patrick Mahomes (Chiefs) all missed games through injury —
-three of the most predictable teams suddenly became much harder to forecast.<br><br>
-<b>Hover over any point</b> to see the exact accuracy and context for notable seasons.
+This shows how the model's accuracy changes by season. <b>Important:</b> this isn't testing every game played that season —
+it only uses the games from that season that happened to fall into the ~1,900 held-back test games (the ones the model never saw during training).
+Since the test set is a random 20% slice across all 35 seasons, some seasons naturally have more test games than others,
+which affects how reliable that season's accuracy figure is — a season with only a handful of test games can swing more easily than one with a larger sample.
+The number of test games used for each season is shown when you hover over that point on the graph.<br><br>
+
+<b>Why does accuracy vary season to season?</b><br>
+Every NFL season has some upsets, injuries, and surprise teams — that's part of what makes the sport unpredictable in general.
+But some seasons have a higher concentration of these disruptions than others, which is what causes accuracy to dip in certain years.
+For example, in 2024, three MVP-calibre starting quarterbacks — Lamar Jackson (Ravens), Joe Burrow (Bengals), and Patrick Mahomes (Chiefs) —
+all missed games through injury in the same season. That's an unusually high number of key injuries concentrated in one year,
+compared to a typical season where maybe one team deals with a significant injury like this. This kind of concentrated disruption
+makes a season much harder to predict than usual.<br><br>
+
+<b>Hover over any point</b> to see the exact accuracy, number of test games, and context for notable seasons.
 """)
     if not season_acc_df.empty:
         avg_acc=season_acc_df['accuracy'].mean()
@@ -998,22 +1015,33 @@ three of the most predictable teams suddenly became much harder to forecast.<br>
             x=season_acc_df['season'],y=season_acc_df['accuracy']*100,
             mode='lines+markers',line=dict(color='#D50A0A',width=3),
             marker=dict(size=10,color='#D50A0A',line=dict(color='white',width=1.5)),
-            customdata=season_acc_df['note'],
-            hovertemplate='<b>Season: %{x}</b><br>Accuracy: %{y:.1f}%<br>%{customdata}<extra></extra>'))
+            customdata=np.stack([season_acc_df['note'], season_acc_df['games']], axis=-1),
+            hovertemplate='<b>Season: %{x}</b><br>Accuracy: %{y:.1f}%<br>Test games: %{customdata[1]}<br>%{customdata[0]}<extra></extra>'))
         fig_s.add_hline(y=avg_acc*100,line_dash='dot',line_color='#4a90d9',
             annotation_text=f'Season average ({avg_acc:.1%})',annotation_font_color='#aaa',annotation_position='top right')
         fig_s.update_layout(**CHART_LAYOUT,
             xaxis=dict(title='NFL Season',gridcolor='#222',dtick=2,
                 range=[season_acc_df['season'].min()-0.5,season_acc_df['season'].max()+0.5]),
-            yaxis=dict(title='Games correctly predicted (%)',range=[75,95],gridcolor='#222',dtick=5),
+            yaxis=dict(title='Games correctly predicted (%)',gridcolor='#222',dtick=5),
             height=460,margin=dict(t=50,b=60,l=70,r=80))
         st.plotly_chart(fig_s,use_container_width=True)
+
+        st.caption("The bar chart below shows how many test games were available for each season — seasons with fewer test games have less reliable accuracy figures.")
+        fig_games=go.Figure(go.Bar(
+            x=season_acc_df['season'], y=season_acc_df['games'],
+            marker_color='#555', text=season_acc_df['games'], textposition='outside', textfont=dict(color='white',size=10)))
+        fig_games.update_layout(**CHART_LAYOUT,
+            xaxis=dict(title='NFL Season',gridcolor='#222',dtick=2),
+            yaxis=dict(title='Number of test games',gridcolor='#222'),
+            height=280,margin=dict(t=20,b=50,l=60,r=40))
+        st.plotly_chart(fig_games,use_container_width=True)
+
         best=season_acc_df.loc[season_acc_df['accuracy'].idxmax()]
         worst=season_acc_df.loc[season_acc_df['accuracy'].idxmin()]
         c1,c2,c3=st.columns(3)
         with c1: st.metric("Season Average",f"{avg_acc:.1%}")
-        with c2: st.metric("Best Season",f"{int(best['season'])} ({best['accuracy']:.1%})")
-        with c3: st.metric("Toughest Season",f"{int(worst['season'])} ({worst['accuracy']:.1%})")
+        with c2: st.metric("Best Season",f"{int(best['season'])} ({best['accuracy']:.1%}, {int(best['games'])} games)")
+        with c3: st.metric("Toughest Season",f"{int(worst['season'])} ({worst['accuracy']:.1%}, {int(worst['games'])} games)")
         takeaway(f"""
 On average, the model correctly predicts <b>{avg_acc:.1%}</b> of games in an NFL season.
 Its toughest season was <b>{int(worst['season'])}</b> and its best was <b>{int(best['season'])}</b>.
