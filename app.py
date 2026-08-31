@@ -766,8 +766,12 @@ My model is trained on historical data to try and accurately predict which team 
     st.markdown("""
 The historical data comes from Kaggle — a website where data scientists share free datasets. The NFL dataset contains 9,455 game results, going back to 1990, giving the model plenty of data to be trained on, to make it as accurate as possible.
 
-Before training, this data is split into two groups: about 7,500 games (80%) are used to actually train the model — this is where it learns the patterns of which teams are more likely to win the game (e.g. the team with the higher average points scored). The remaining 1,900 games (20%) are held back completely and never shown to the model during training. These are used afterwards in testing, to see how accurate the model really is, since it's being tested on games it has never seen before.
+Before training, this data is split into two groups: about 7,500 games (80%) are used to actually train the model — this is where it learns the patterns of which teams are more likely to win the game (e.g. the team with the higher average points scored). The remaining 1,891 games (20%) are used as test games and are held back completely and never shown to the model during training. These are used afterwards in testing, to see how accurate the model really is, since it's being tested on games it has never seen before.
+""")
 
+    st.markdown("---")
+    st.subheader("Why are there 6 key stats framed as home team vs away team?")
+    st.markdown("""
 The two teams in a matchup are distinguished as the home team and the away team. This is a major distinction that's always present between the two sides — true for every NFL game ever played.
 
 From all of that historical NFL data, the model takes 6 key stats from each game — split into 3 for the home team and 3 for the away team, reflecting that home/away distinction. The same 6 stats are used for every single matchup, so every game is judged on the same criteria.
@@ -796,7 +800,7 @@ From all of that historical NFL data, the model takes 6 key stats from each game
 To find the best model to power the NFL Game Predictor, I tested 3 different ML models — Logistic Regression, Random Forest, and XGBoost — on how well they could correctly predict unseen NFL games, comparing their accuracy and F1 scores. My results showed that Logistic Regression came out on top for both accuracy and F1 score, so I chose it to power the NFL Game Predictor.
 """)
 
-    st.markdown("This bar chart shows the percentage of games each model correctly predicted, out of the 1,900 games held back for testing. The three models are closely matched, with less than 2% separating the best and worst performer, and only a 0.16% gap between Logistic Regression and XGBoost.")
+    st.markdown("This bar chart shows the percentage of games each model correctly predicted, out of the 1,891 games held back for testing. The three models are closely matched, with less than 2% separating the best and worst performer, and only a 0.16% gap between Logistic Regression and XGBoost. All the models are between the 56-58% range, showing that each model is predicting games correctly more than half of the time, which is honestly quite good, considering how unpredictable the NFL is.")
 
     # Dynamic chart — automatically highlights whichever model actually scores highest
     model_names=['Logistic Regression','Random Forest','XGBoost']
@@ -886,6 +890,11 @@ Logistic Regression combines all 6 team stats into a single calculation, then co
 <b>Step 1 — Combine the 6 stats into one number, called z</b><br>
 During training, Logistic Regression works out a <b>weight</b> for each of the 6 stats — a number reflecting how useful that stat is for predicting a winner. It also calculates one extra fixed number called the <b>intercept</b>, which captures a simple fact: home teams win more often than away teams overall. So before even looking at either team's specific stats, the model starts with a slight lean toward the home team.<br><br>
 
+Home teams have an advantage due to:<br>
+• <b>Crowd noise</b> — disrupts the away team's ability to communicate at the line of scrimmage<br>
+• <b>No travel</b> — away teams often travel the day before, disrupting sleep and routine<br>
+• <b>Stadium familiarity</b> — home teams know their own stadium, it's a new environment to the away team<br><br>
+
 <b>z = intercept + (weight₁ × stat₁) + (weight₂ × stat₂) + (weight₃ × stat₃) + (weight₄ × stat₄) + (weight₅ × stat₅) + (weight₆ × stat₆)</b><br><br>
 
 The intercept and all 6 weights are fixed once training is complete — they never change. Only the specific team stats change from matchup to matchup.<br><br>
@@ -954,16 +963,17 @@ Probability of Eagles winning = {1-ex_prob_home:.1%}
 
     st.markdown("---")
     st.subheader("🔍 2. Which Stats Matter Most to the Model?")
-    explainer(f"""
-This chart uses the same real weights from the worked example above — Logistic Regression's 6 coefficients.
-The bars show each weight's <b>size</b> (ignoring whether it's positive or negative), so you can see which stats have
-the biggest influence on the model's predictions, regardless of which direction they push the outcome.<br><br>
-<b>What each stat means:</b><br>
-• <b>Home/Away Team Win Rate</b> — overall % of games won, across all their games since 1990<br>
-• <b>Home/Away Team Avg Points Scored</b> — average points scored per game since 1990. A team averaging 30+ has a high-powered offence.<br>
-• <b>Home/Away Team Avg Points Conceded</b> — average points let in per game since 1990. A team conceding 28+ has a leaky defence.<br><br>
-<b>A quick note on comparing these fairly:</b> win rate is measured on a 0–1 scale, while points scored/conceded are measured in much bigger numbers (points per game).
-Because of this, the weights aren't perfectly comparable "apples to apples" — a small weight on a big-scale stat can still matter a lot. What we can say confidently is that <b>Away Team Win Rate</b> has the single biggest weight of the 6, meaning it has the strongest pull on the model's predictions.
+    st.markdown("""
+This chart uses the same real weights from the worked example above; these are the weights that Logistic Regression assigns to each of the 6 key stats. The bars show each weight and whether it's positive or negative (if it increases home team's win chance or if it decreases home team's win chance as the stat goes up). This helps see which stats have the biggest influence on the model's predictions.
+
+**Reminder of what each key stat refers to**
+
+1. Home team historical win rate - the percentage of all games the home team has won since 1990
+2. Away team historical win rate - the percentage of all games the away team has won since 1990
+3. Home team average points scored - how many points the home team scores per game on average since 1990
+4. Away team average points scored - how many points the away team scores per game on average since 1990
+5. Home team average points conceded - how many points the home team has conceded per game on average since 1990
+6. Away team average points conceded - how many points the away team has conceded per game on average since 1990
 """)
     idx=np.argsort(importances)[::-1]
     s_fn=[feature_names[i] for i in idx]
@@ -1054,24 +1064,16 @@ It's also worth remembering this is a relatively small number of seasons — 25 
 
     st.markdown("---")
     st.subheader("🎯 4. Does the Model's Confidence Level Actually Mean Anything?")
-    explainer("""
-When the model predicts a game it gives each team a probability — for example home team 64%, away team 36%.
-That means: if you played this exact game 100 times, the home team would win around 64 of them.<br><br>
-<b>The three confidence levels are based on the gap between those two percentages:</b><br>
-• 🔴 <b>Low Confidence</b> — gap under 7 percentage points (e.g. 53% vs 47%). Nearly a coin flip.<br>
-• 🟡 <b>Medium Confidence</b> — gap between 7 and 15 percentage points (e.g. 57% vs 43%). Leans one way.<br>
-• 🟢 <b>High Confidence</b> — gap over 15 percentage points (e.g. 66% vs 34%). Strongly favours one team.<br><br>
-The model was tested on ~1,900 games from NFL seasons 1990–2025 (pre-1990 not used).
-The <b>percentage on each bar</b> shows how often the model was correct within that confidence level.
-The <b>number in brackets</b> shows how many of those ~1,900 games fell into each bucket.
+    st.markdown("""
+When the model predicts a game it gives each team a probability — for example home team 64%, away team 36%. However, the model will also give a confidence level. This is how confident the model is that its prediction will be accurate. The model decides its confidence based on how big the gap is between the two teams' probabilities.
+
+**The three confidence levels:**
+- 🔴 **Low Confidence** — This is when the gap between the winner and loser's probability is under 7% (e.g. 52% vs 48%). Could go either way.
+- 🟡 **Medium Confidence** — This is when the gap between the winner and loser's probability is between 7 and 15% (e.g. 55% vs 45%). Leans one way.
+- 🟢 **High Confidence** — This is when the gap between the winner and loser's probability is above 15% (e.g. 60% vs 40%). Strongly favours one team.
 """)
     if conf_data:
         cdf=pd.DataFrame(conf_data)
-        green_row=cdf[cdf['confidence']=='🟢 High Confidence']
-        if not green_row.empty:
-            g_games=int(green_row['games'].values[0]); g_acc=float(green_row['accuracy'].values[0])
-            g_correct=int(round(g_games*g_acc))
-            explainer(f"For example, out of the ~1,900 test games, XGBoost had high confidence in <b>{g_games}</b> of them. From those {g_games} games, it correctly predicted the winner in <b>{g_correct}</b> of them — an accuracy of <b>{g_acc:.1%}</b>.")
         fig_c=go.Figure(go.Bar(x=cdf['confidence'],y=cdf['accuracy']*100,
             marker_color=['#D50A0A','#FFB300','#00C853'],
             text=[f"{a:.1%}\n({g} games)" for a,g in zip(cdf['accuracy'],cdf['games'])],
@@ -1079,28 +1081,25 @@ The <b>number in brackets</b> shows how many of those ~1,900 games fell into eac
         fig_c.add_hline(y=50,line_dash='dash',line_color='#555',annotation_text='Random guessing (50%)',annotation_font_color='#aaa',annotation_position='bottom right')
         fig_c.update_layout(**CHART_LAYOUT,yaxis=dict(title='Games correctly predicted (%)',range=[40,80],gridcolor='#222'),xaxis=dict(gridcolor='#222'),height=420)
         st.plotly_chart(fig_c,use_container_width=True)
-        takeaway("""
-If this chart is working correctly, the green bar (High Confidence) will be noticeably taller than the red bar (Low Confidence).
-That confirms that when the model says it is confident, it really is more likely to be right.
+
+        low_row=cdf[cdf['confidence'].str.contains('Low')]
+        med_row=cdf[cdf['confidence'].str.contains('Medium')]
+        high_row=cdf[cdf['confidence'].str.contains('High')]
+        low_g = int(low_row['games'].values[0]) if not low_row.empty else 0
+        med_g = int(med_row['games'].values[0]) if not med_row.empty else 0
+        high_g = int(high_row['games'].values[0]) if not high_row.empty else 0
+
+        st.markdown(f"""
+From all 1,891 games the model predicted in testing, it also sorted them into different confidence buckets — low, medium, and high confidence. The number in brackets shows how many of those 1,891 games fell into each bucket: low confidence ({low_g} games), medium confidence ({med_g} games), and high confidence ({high_g} games). The percentage on each bar shows how accurate the model was within that confidence bucket.
+
+Green is the highest, which makes sense — the model is highly confident in these predictions, so it should get more of them right, giving it the highest accuracy score. It also makes sense that the low confidence bucket has the lowest accuracy score, since those are the games the model is unsure about. This shows that the model is quite trustworthy — if it's confident in a prediction, it's right most of the time, and as it becomes more unsure (the red or yellow bucket), it starts to get more wrong.
 """)
 
     st.markdown("---")
     st.subheader("🔢 5. Where Does the Model Go Wrong?")
-    infobox("""
-<b>Why is everything framed as home team vs away team?</b><br>
-In every single NFL game ever played, there is one home team and one away team — it is the only thing that is always different between the two sides.
-Because of this, the model answers one question: <b>will the home team win?</b>
-Every prediction is either "yes, home team wins" or "no, away team wins."<br><br>
-NFL ties do occur — roughly once every 200 games. Including ties as a third outcome is a planned future improvement.<br><br>
-<b>Why do home teams win more often?</b> Across 35 seasons, home teams have won ~57% of all games:<br>
-• <b>Crowd noise</b> — disrupts the away team's ability to communicate at the line of scrimmage<br>
-• <b>No travel</b> — away teams often travel the day before, disrupting sleep and routine<br>
-• <b>Stadium familiarity</b> — home teams know their own stadium's quirks<br><br>
-<b>Important:</b> While home field is an advantage, if the away team is superior in win rate or scoring, the model will still favour the away team.
-Home field is one factor among six, not an override.
-""")
+    st.markdown("Below is a matrix of all the 1,891 test games, which the model has divided its predictions based on whether it predicted the home or the away team to win, and who actually won. Here are the results:")
+
     tn,fp,fn,tp=cm.ravel(); total_all=tn+tp+fp+fn; total_right=tn+tp
-    st.markdown(f"Out of all **{total_all:,} test games**, the model divided its predictions into 4 groups. Here are the results:")
     fig_cm=go.Figure(go.Heatmap(
         z=[[tn,fp],[fn,tp]],
         x=['Model predicted: Away win','Model predicted: Home win'],
@@ -1116,10 +1115,15 @@ Home field is one factor among six, not an override.
     with c2: st.metric("✅ Home wins correctly called",tp)
     with c3: st.metric("❌ Called home win, away won",fp)
     with c4: st.metric("❌ Called away win, home won",fn)
-    takeaway(f"""
-Out of {total_all:,} test games, the model correctly predicted <b>{total_right:,}</b> outcomes.
-It correctly called home wins more than twice as often as away wins ({tp:,} vs {tn:,}) —
-reflecting the real-world pattern that home teams win ~57% of games.
+
+    st.markdown(f"""
+Out of 1,891 test games, the model predicted the home team to win in {tp+fp:,} games and the away team in {tn+fn:,} games. Of those home predictions, {tp:,} were correct — an accuracy of {tp/(tp+fp):.1%}. Of the away predictions, {tn:,} were correct — an accuracy of {tn/(tn+fn):.1%}.
+
+The model predicting home wins almost twice as often as away wins, combined with home predictions being more accurate, backs up the stat we found earlier — that home teams win around 57% of the time. This shows that the model leans heavily towards the home team, which is correct more often than not.
+
+The amount of correctly predicted home games stands out significantly with {tp:,} games, really showing how much the home team wins, and how it is so disproportionate between the amount of home winner predictions and away winner predictions — almost doubled. That said, the {fp:,} incorrect home predictions show that home field advantage is not a guarantee. Even with the crowd, no travel, and stadium familiarity working in their favour, home teams still lost nearly 4 in 10 of the games the model backed them to win. On the other side, the {tn:,} correctly predicted away wins show that when an away team is genuinely superior — a higher win rate, better scoring, a stronger defence — the model will still back them to win, despite knowing they don't have home advantage. However, the {fn:,} incorrect away predictions could indicate that even a stronger away team can't always make up for the home team's advantage. Even so, this is the smallest quadrant, showing that if the away team is predicted to win, it is because they are a significantly stronger team than the home team, and that they do have a strong chance to win.
+
+Overall, the model correctly predicted {total_right:,} of the 1,891 test games ({tp:,} home + {tn:,} away), which lines up with its overall accuracy of 57.7%. The {fp+fn:,} incorrect predictions ({fp:,} home, {fn:,} away) show the model is far from perfect — but a correct call more than half the time, on a sport as unpredictable as the NFL, still makes it a reliable tool.
 """)
 
     st.markdown("---")
