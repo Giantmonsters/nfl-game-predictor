@@ -788,11 +788,6 @@ From all of that historical NFL data, the model takes 6 key stats from each game
 """)
 
     total_games=len(scores); hw_pct=scores['home_win'].mean(); total_hw=int(scores['home_win'].sum())
-    c1,c2,c3,c4=st.columns(4)
-    with c1: st.metric("Total Games",f"{total_games:,}")
-    with c2: st.metric("Seasons","1990–2025")
-    with c3: st.metric("Total Home Wins",f"{total_hw:,}")
-    with c4: st.metric("Home Win Rate",f"{hw_pct:.1%}")
 
     st.markdown("---")
     st.subheader("🏆 1. Which Model did I pick to power the NFL Game Predictor?")
