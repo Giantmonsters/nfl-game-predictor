@@ -885,29 +885,27 @@ The F1 score ranges from 0 (useless) to 1 (perfect). A higher F1 score means the
     st.markdown("---")
     st.subheader("📐 How Does Logistic Regression Work?")
     explainer("""
-Logistic Regression combines all 6 team stats into a single calculation, then converts that into a probability of the home team winning. It works in two steps.<br><br>
+<b>Step 1 — Assigning weights to the 6 stats</b><br>
+Logistic Regression assigns a weight to each of the 6 key stats. It starts by guessing random weights — meaningless at first, since it has no idea of which stats are the most useful in predicting the winner. It then tests these weights against thousands of past games it already knows the real result of, to check how accurate its predictions are. Wherever its prediction is wrong, it nudges each weight slightly in the direction that would have made the prediction more accurate. This happens thousands of times, with tiny adjustments each time, until the weights settle into stable, final values – giving accurate predictions most of the time.<br><br>
 
-<b>Step 1 — Combine the 6 stats into one number, called z</b><br>
-During training, Logistic Regression works out a <b>weight</b> for each of the 6 stats — a number reflecting how useful that stat is for predicting a winner. It also calculates one extra fixed number called the <b>intercept</b>, which captures a simple fact: home teams win more often than away teams overall. So before even looking at either team's specific stats, the model starts with a slight lean toward the home team.<br><br>
-
+<b>Step 2 — The intercept</b><br>
+There is also one extra number called the intercept, which accounts for the home team's built-in advantage, shown by the home team winning 57% of games in the NFL. This means that even if the teams were even, the home team would still have the advantage due to this intercept.<br>
 Home teams have an advantage due to:<br>
 • <b>Crowd noise</b> — disrupts the away team's ability to communicate at the line of scrimmage<br>
 • <b>No travel</b> — away teams often travel the day before, disrupting sleep and routine<br>
-• <b>Stadium familiarity</b> — home teams know their own stadium, it's a new environment to the away team<br><br>
+• <b>Stadium familiarity</b> — home teams know their own stadium, it's a new environment to the away team<br>
+The intercept isn't manually set — it goes through the exact same training process as the 6 weights: starting as a random guess, then gradually adjusted through thousands of tiny corrections until it settles into a stable final value.<br><br>
 
+<b>Step 3 — Combining everything into z</b><br>
+Once training is complete, the intercept and all 6 weights are fixed — they never change again. Only the specific team stats change from matchup to matchup.<br>
+The Z value is found using this formula:<br>
 <b>z = intercept + (weight₁ × stat₁) + (weight₂ × stat₂) + (weight₃ × stat₃) + (weight₄ × stat₄) + (weight₅ × stat₅) + (weight₆ × stat₆)</b><br><br>
+Z is just a stepping stone toward the final answer, and is not meaningful by itself<br><br>
 
-The intercept and all 6 weights are fixed once training is complete — they never change. Only the specific team stats change from matchup to matchup.<br><br>
-
-<b>How are the weights actually calculated?</b><br>
-The model starts by guessing random weights, then tests them against thousands of past games it already knows the real result of. Where its predictions are wrong, it nudges each weight slightly in the direction that would have made the prediction more accurate. This happens thousands of times, with tiny adjustments each time, until the weights settle into stable values — the real ones shown below.<br><br>
-
-<b>Step 2 — Turn z into an actual probability</b><br>
-z on its own isn't a probability — it could be any number, positive or negative. To turn it into a sensible probability between 0% and 100%, it's run through a formula called the S-curve:<br><br>
-
+<b>Step 4 — Turning z into an actual probability</b><br>
+To turn z into a genuine, meaningful probability, it's run through a formula called the S-curve:<br>
 <b>Probability of home win = 1 ÷ (1 + e^(-z))</b><br><br>
-
-No matter how big or small z is, this formula always produces a result between 0% and 100% — a very negative z gets squeezed close to 0%, a very positive z gets squeezed close to 100%, and a z of exactly 0 lands at exactly 50%.
+This formula is always built specifically to calculate the home team's probability of winning. The away team's probability is simply whatever's left over — 100% minus the home team's probability. This formula always produces a result between 0% and 100%, no matter what Z's value is.
 """)
 
     st.markdown("#### A Real Worked Example: Kansas City Chiefs (Home) vs Philadelphia Eagles (Away)")
@@ -1202,24 +1200,38 @@ An AUC of {roc_auc:.3f} confirms the model does have skill at predicting home wi
 """)
 
     st.markdown("---")
-    st.subheader("📦 7. The Data Behind the Model")
-    explainer(f"""
-<b>Source:</b> NFL Scores & Betting Dataset on Kaggle (spreadspoke_scores.csv).<br><br>
-<b>How was the overall home win % calculated?</b><br>
-{total_hw:,} home wins ÷ {total_games:,} total games = <b>{hw_pct:.1%}</b><br>
-Yes — home teams have won {hw_pct:.0%} out of every 100 games in this dataset.
+    st.subheader("🏠 7. Home field advantage")
+    st.markdown("This section talks about how much advantage the home team has, and how it has influenced them winning across the years.")
+
+    st.markdown("#### How was the overall home team win % calculated?")
+    st.markdown(f"""
+The overall home team win % will help us see how much the home field advantage actually helps the home team. If the home team advantage was non-existent, the overall home team win % should be 50%, equal with the away team. If the home team advantage is true, it should be above 50% and depending how much higher it is – should tell us how much advantage the home team has.
+
+**{total_hw:,} home wins ÷ {total_games:,} total games = {hw_pct:.1%}**
+
+57% shows us that the home team advantage is true, home teams do win more often than the away team, and that it is not equal.
 """)
+
+    st.markdown("**Reminder of the different types of home team advantage**")
+    st.markdown("""
+- Crowd noise — disrupts the away team's ability to communicate at the line of scrimmage
+- No travel — away teams often travel the day before, disrupting sleep and routine
+- Stadium familiarity — home teams know their own stadium; it's a new environment to the away team
+""")
+
     c1,c2,c3,c4=st.columns(4)
     with c1: st.metric("Total Games",f"{total_games:,}")
     with c2: st.metric("Seasons","1990–2025")
     with c3: st.metric("Total Home Wins",f"{total_hw:,}")
     with c4: st.metric("Home Win Rate",f"{hw_pct:.1%}")
 
-    st.markdown("#### 🏟️ Has Home Field Advantage Changed Over Time?")
-    explainer("""
-This groups seasons since 1990 into four periods and shows the home win % in each — matching the full range of data the model is trained on.<br>
-Seasons covered: 1990–1999 (10 seasons), 2000–2009 (10 seasons), 2010–2019 (10 seasons), 2020–2025 (6 seasons).<br>
-<b>How each % was calculated:</b> total home wins in that period ÷ total games in that period (shown on each bar).
+    st.markdown("#### Has Home Field Advantage Changed Over Time?")
+    st.markdown("""
+This bar chart shows the different seasons since 1990, as that is how far the Kaggle data goes back to.
+
+Seasons covered: 1990–1999 (10 seasons), 2000–2009 (10 seasons), 2010–2019 (10 seasons), 2020–2025 (6 seasons).
+
+How each % was calculated: total home wins in that period ÷ total games in that period (shown on each bar).
 """)
     bar_texts=[f"{r['Home Win Rate']:.1%}\n({int(r['Home Wins']):,} wins ÷ {int(r['Games']):,} games)" for _,r in period_hw.iterrows()]
     fig_p=go.Figure(go.Bar(x=period_hw['Period'],y=period_hw['Home Win Rate']*100,marker_color='#013369',
@@ -1227,7 +1239,42 @@ Seasons covered: 1990–1999 (10 seasons), 2000–2009 (10 seasons), 2010–2019
     fig_p.add_hline(y=50,line_dash='dash',line_color='#555',annotation_text='50% — no home advantage',annotation_font_color='#aaa',annotation_position='bottom right')
     fig_p.update_layout(**CHART_LAYOUT,yaxis=dict(title='Home Win %',range=[0,75],gridcolor='#222'),xaxis=dict(gridcolor='#222'),height=400)
     st.plotly_chart(fig_p,use_container_width=True)
-    takeaway("Home field advantage is real — but it has been shrinking. The 2020–2025 period is the lowest on record, partly because the 2020 COVID season was played entirely without fans, removing crowd noise as a factor for an entire season.")
+
+    st.markdown("""
+From this bar chart, we can see that the home team advantage is slowly decreasing, this is because many away teams have actually adapted to the disadvantage they have, and have tried to mitigate it, as best as possible – this can be done by preparing for the home team's environment, making travel as fluid as possible or by adapting their communication so its not affected by the loud crowd noise. 2020-2025 is especially low due to covid, this is because the home team didn't have crowd noise – which is one of the main factors in the home team advantage. However, despite the home team win % decreasing, the advantage is still there, giving them an edge in the model's predictions, but in the future, the model may start to discover that the home team advantage is almost redundant, which may drastically change how the model starts predicting future games, even removing the intercept that gives the home team an edge in the model's predictions.
+""")
+
+    st.markdown("---")
+    st.subheader("🔍 Evaluation & Future Improvements")
+    st.markdown("""
+Building this model has taught me a huge amount about machine learning — not just how to build one, but how to properly test it, question it, and understand where it genuinely struggles. This section is a look at the model's real limitations, and what I'd explore next if I kept developing it.
+
+**1. Does data from 1990 still matter?**
+
+The model is trained on data going back to 1990 — but the NFL has changed enormously since then. Rule changes, the rise of the passing game, free agency, salary cap rules, and even coaching styles have all shifted significantly over 35 years. A team's win rate from 1995 reflects a genuinely different era of football than a win in 2024, and it brings up the question - how much that older data actually helps the model? This is something worth testing further — comparing the model's performance using only recent seasons versus the full historical range.
+
+**2. The model doesn't account for ties**
+
+NFL ties are rare, but they do happen. Because the model is built entirely around one binary question — will the home team win? — there's no way for it to predict a tie, and games that ended in a tie were excluded from the dataset entirely during training. A more complete model would need to treat this as a three-outcome problem instead of two.
+
+**3. No player-level data**
+
+The model only knows team-level historical stats — win rate, points scored, points conceded. It has no way of knowing if a star quarterback is injured, if a key player was just traded, or if a team just hired a new head coach. A team's historical stats might look strong, but if their best player is unavailable, the model has no way to adjust for that. Incorporating injury reports or player-level data would be a meaningful next step.
+
+**4. The model is noticeably weaker at predicting away wins**
+
+Throughout this tab, we've seen consistent evidence that the model favours home teams more heavily than it should. It predicted a home win in 1,237 of 1,891 test games, but only an away win in 654 games — and its accuracy on home predictions (61.1%) is meaningfully higher than on away predictions (50.9%). This shows up again in the model's recall and precision: out of all the home wins, the model correctly predicted 70.2% of those home wins as well — but out of all the games the model predicted as home wins, only 61.1% actually were home wins. In other words, the model rarely misses a home win, since it's predicting a home win most of the time, but it's also calling a home win more often than it should, leading to the model being wrong almost 40% of the time.
+
+**5. The 2015 season shows this limitation in action**
+
+2015 was the model's worst-performing season by far — just 38% accuracy, compared to 47-64% in every other season. Investigating the actual game log showed this wasn't a bug: that specific batch of test games from 2015 had an unusually high number of away wins, and the model's built-in bias toward home teams meant it got a lower accuracy compared to its usual 47-64% range. This is a real example of the home team bias actually costing the model accuracy in a specific season.
+
+**6. An experiment: using recent form instead of all-time history**
+
+To test whether older data was "useless and ineffective" to the model, I rebuilt it using only each team's last 3 seasons of games, instead of their entire history since 1990. The results were mixed: accuracy actually improved slightly, from 57.7% to 59.6%. But the model's weights stopped making sense - Home Team Win Rate flipped to a negative weight, and Away Team Win Rate flipped positive, the opposite of what real football logic would suggest. As a stronger Home team Win rate helps the home team to win – so it should be a positive weight, and a weaker Away Team Win rate hurts the home team chances to win, so it should be a negative weight. This is likely because 3 seasons of data wasn't a large enough sample for the model to reliably give a weight to each individual stat.
+
+Given this, I chose to keep the all-time historical model. A model that is slightly less accurate but can be explained why the model reaches its conclusions, is, in my opinion, much preferable to a model that's slightly more accurate but produces weights that don't make sense.
+""")
 
 # ════════════════════════════════════════════
 # TAB 7 — WHO AM I?
