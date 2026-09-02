@@ -357,8 +357,8 @@ def load_model():
                    'Away Team Avg Points Scored','Home Team Avg Points Conceded','Away Team Avg Points Conceded']
     importances=np.abs(lr.coef_[0])  # use LR's real coefficients (magnitude), matching the worked example weights table
 
-    scores_32=scores[scores['schedule_season']>=2002].copy()
-    scores_32['period']=pd.cut(scores_32['schedule_season'],bins=[2001,2009,2019,2026],labels=['2002–2009','2010–2019','2020–2025'])
+    scores_32=scores[scores['schedule_season']>=1990].copy()
+    scores_32['period']=pd.cut(scores_32['schedule_season'],bins=[1989,1999,2009,2019,2026],labels=['1990–1999','2000–2009','2010–2019','2020–2025'])
     period_hw=scores_32.groupby('period',observed=True)['home_win'].agg(home_win_rate='mean',games='count',home_wins='sum').reset_index()
     period_hw.columns=['Period','Home Win Rate','Games','Home Wins']
 
@@ -1127,23 +1127,79 @@ Overall, the model correctly predicted {total_right:,} of the 1,891 test games (
 """)
 
     st.markdown("---")
-    st.subheader("📉 6. How Well Can the Model Separate Winners from Losers?")
-    explainer(f"""
-A ROC curve (Receiver Operating Characteristic) is a standard way in data science to measure how well a model separates two outcomes —
-in this case, games the home team won versus games the away team won.<br><br>
-We are working through this section to make it as clear as possible. For now the headline number is the <b>AUC score: {roc_auc:.3f}</b>.<br>
-AUC (Area Under the Curve) runs from 0.5 (no better than guessing) to 1.0 (perfect).
-Our score of {roc_auc:.3f} places this model in the same range as professional NFL forecasting tools.
+    st.subheader("📉 6. How Well Can the Model Separate Winners from Losers? (ROC Curve)")
+
+    st.markdown("""
+**What is a ROC curve?**
+
+A ROC curve is a standard way in data science to measure how good the model is, overall, at telling home-win games apart from away-win games.
+
+So far, every prediction we've looked at has used one fixed cutoff: if the model gives the home team a probability above 50%, it predicts a home win. The ROC curve tests something different — it imagines using many different cutoffs, from very strict (e.g. only call it a home win if the home team's win probability is over 90%) to very loose (e.g. call it a home win if the probability is barely over 51%), and checks how accurate the model is at each cutoff.
+
+**The two axes**
+
+For every cutoff tested, two things are measured:
+- **True Positive Rate (Y-axis)** — out of all the games that were actually home wins, how many did the model correctly predict at this cutoff?
+- **False Positive Rate (X-axis)** — out of all the games that were actually away wins, how many did the model incorrectly predict as home wins at this cutoff?
+
+**Examples with different cutoffs**
+
+Our test set has 1,077 real home wins and 814 real away wins. Here's how the X and Y coordinates are calculated at three different cutoffs:
+
+**Cutoff = 90% (very strict)** — only games the model is extremely confident about get called a home win. A lot of home wins get missed (many only had 70-80% confidence), but the number of games predicted as a home win – and are incorrect – is very low, since the bar is so high.
+- Correct home win predictions = 200 of 1,077 correct home wins → True Positive Rate = 200/1077 = 0.19
+- Incorrect home win predictions (away teams actually won) = 5 of 814 incorrect home wins → False Positive Rate = 5/814 = 0.006
+- Point plotted: (0.006, 0.19)
+
+**Cutoff = 65% (moderate)** — more games clear the bar, so the model catches more home wins, but the number of games predicted as a home win – and are incorrect – starts increasing, since the cutoff is lower, the model isn't so certain the home team will win.
+- Correct home win predictions = 756 of 1,077 home wins → True Positive Rate = 70.2%
+- Incorrect home win predictions (away team actually won) = 481 of 814 real away wins → False Positive Rate = 59.1%
+- Point plotted: (0.591, 0.702)
+
+**Cutoff = 51% (very loose, barely above a coin flip)** — the model catches almost every home win, but also the number of games predicted as a home win – and are incorrect – is very high now, since it's now calling every close toss-up game as a home win.
+- Correct home win predictions = 1,000 of 1,077 real home wins → True Positive Rate ≈ 0.93
+- Incorrect home win predictions (away team actually won) = 500 of 814 real away wins → False Positive Rate ≈ 0.61
+- Point plotted: (0.61, 0.93)
+
+Each cutoff produces one point on the graph. Testing many different cutoffs — not just these three — and plotting a point for each one is what traces out the full ROC curve.
+
+**Reading the curve**
+
+Two reference lines help make sense of any ROC curve:
+- A **perfect model** would catch every home win, at any cutoff, with zero incorrect home win predictions — its curve would shoot straight up to the top-left corner of the graph.
+- A **useless model** — one with no real skill at predicting when the home team would win — would produce a straight diagonal line, since at every cutoff, it would be equally likely to catch a real home win as it would be to wrongly predict one, just a 50/50 chance either way.
+
+A real, working model like ours sits somewhere between those two extremes — bulging above the diagonal line, but not reaching the perfect top-left corner.
 """)
+
     fig_roc=go.Figure()
     fig_roc.add_trace(go.Scatter(x=fpr,y=tpr,mode='lines',line=dict(color='#D50A0A',width=2),
         name=f'Our model (AUC = {roc_auc:.3f})',fill='tozeroy',fillcolor='rgba(213,10,10,0.08)'))
     fig_roc.add_trace(go.Scatter(x=[0,1],y=[0,1],mode='lines',line=dict(color='#666',dash='dash'),name='Random guessing (AUC = 0.5)'))
     fig_roc.update_layout(plot_bgcolor='#080808',paper_bgcolor='#080808',font=dict(color='#f0f0f0'),
-        xaxis=dict(title='→ More away wins mistakenly predicted as home wins',gridcolor='#222',range=[0,1]),
-        yaxis=dict(title='→ More home wins correctly identified',gridcolor='#222',range=[0,1]),
+        xaxis=dict(title='False Positive Rate →',gridcolor='#222',range=[0,1]),
+        yaxis=dict(title='True Positive Rate →',gridcolor='#222',range=[0,1]),
         legend=dict(bgcolor='#111',bordercolor='#333'),height=440,showlegend=True)
     st.plotly_chart(fig_roc,use_container_width=True)
+
+    st.markdown(f"""
+**What is AUC?**
+
+AUC stands for Area Under the Curve — how much of the graph's total area sits underneath the ROC curve.
+- AUC = 0.5 → the curve sits exactly on the diagonal (useless, 50/50 decisions)
+- AUC = 1.0 → the curve hugs the top-left corner (perfect model)
+- Anything in between is what normal ML Models have, which can skilfully predict the winner, but is obviously not perfect
+
+**What AUC means in practice**
+
+AUC can be understood as a test: if you randomly compared one game that was a real home win, and a separate game that was a real away win, AUC is the probability that the model will make the home team's win probability higher in the game won by the home team, rather than the game won by the away team.
+
+**Our model's real AUC score is {roc_auc:.3f}.**
+
+This means: if you repeated that exact comparison — one real home win vs one separate real away win — many, many times, the model would correctly give the actual home-win game the higher probability {roc_auc:.1%} of the time (roughly {roc_auc*100:.0f} out of every 100 comparisons). If the AUC were exactly 0.5, that comparison would be a pure coin flip — correct only half the time.
+
+An AUC of {roc_auc:.3f} confirms the model does have skill at predicting home wins — but it's by a modest amount.
+""")
 
     st.markdown("---")
     st.subheader("📦 7. The Data Behind the Model")
@@ -1161,9 +1217,8 @@ Yes — home teams have won {hw_pct:.0%} out of every 100 games in this dataset.
 
     st.markdown("#### 🏟️ Has Home Field Advantage Changed Over Time?")
     explainer("""
-This groups seasons since 2002 into three periods and shows the home win % in each.
-2002 is the starting point because that is when the Houston Texans joined as the 32nd franchise, completing the modern NFL.<br>
-Seasons covered: 2002–2009 (8 seasons), 2010–2019 (10 seasons), 2020–2025 (6 seasons).<br>
+This groups seasons since 1990 into four periods and shows the home win % in each — matching the full range of data the model is trained on.<br>
+Seasons covered: 1990–1999 (10 seasons), 2000–2009 (10 seasons), 2010–2019 (10 seasons), 2020–2025 (6 seasons).<br>
 <b>How each % was calculated:</b> total home wins in that period ÷ total games in that period (shown on each bar).
 """)
     bar_texts=[f"{r['Home Win Rate']:.1%}\n({int(r['Home Wins']):,} wins ÷ {int(r['Games']):,} games)" for _,r in period_hw.iterrows()]
