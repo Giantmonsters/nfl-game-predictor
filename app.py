@@ -795,7 +795,7 @@ From all of that historical NFL data, the model takes 6 key stats from each game
     with c4: st.metric("Home Win Rate",f"{hw_pct:.1%}")
 
     st.markdown("---")
-    st.subheader("🏆 Which Model did I pick to power the NFL Game Predictor?")
+    st.subheader("🏆 1. Which Model did I pick to power the NFL Game Predictor?")
     st.markdown("""
 To find the best model to power the NFL Game Predictor, I tested 3 different ML models — Logistic Regression, Random Forest, and XGBoost — on how well they could correctly predict unseen NFL games, comparing their accuracy and F1 scores. My results showed that Logistic Regression came out on top for both accuracy and F1 score, so I chose it to power the NFL Game Predictor.
 """)
@@ -1004,7 +1004,7 @@ The remaining 4 stats are all fairly close in weight, with a range of just 0.032
 """)
 
     st.markdown("---")
-    st.subheader("📈 3. How Accurate Was the Model in Each NFL Season?")
+    st.subheader("🎯 3. How Accurate Was the Model in Each NFL Season?")
     st.markdown("Hover over any point to see the exact accuracy and context for notable seasons.")
 
     if not season_acc_df.empty:
@@ -1067,7 +1067,7 @@ It's also worth remembering this is a relatively small number of seasons — 25 
         with c3: st.metric("Toughest Season",f"{int(worst['season'])} ({worst['accuracy']:.1%}, {int(worst['games'])} games)")
 
     st.markdown("---")
-    st.subheader("🎯 4. Does the Model's Confidence Level Actually Mean Anything?")
+    st.subheader("💪 4. Does the Model's Confidence Level Actually Mean Anything?")
     st.markdown("""
 When the model predicts a game it gives each team a probability — for example home team 64%, away team 36%. However, the model will also give a confidence level. This is how confident the model is that its prediction will be accurate. The model decides its confidence based on how big the gap is between the two teams' probabilities.
 
@@ -1211,14 +1211,14 @@ An AUC of {roc_auc:.3f} confirms the model does have skill at predicting home wi
 
     st.markdown("#### How was the overall home team win % calculated?")
     st.markdown(f"""
-The overall home team win % will help us see how much the home field advantage actually helps the home team. If the home team advantage was non-existent, the overall home team win % should be 50%, equal with the away team. If the home team advantage is true, it should be above 50% and depending how much higher it is – should tell us how much advantage the home team has.
+The overall home team win % will help us see how much the home field advantage actually helps the home team. If the home field advantage was non-existent, the overall home team win % should be 50%, equal with the away team. If the home field advantage is true, it should be above 50% and depending how much higher it is – should tell us how much advantage the home team has.
 
 **{total_hw:,} home wins ÷ {total_games:,} total games = {hw_pct:.1%}**
 
-57% shows us that the home team advantage is true, home teams do win more often than the away team, and that it is not equal.
+57% shows us that the home field advantage is true, home teams do win more often than the away team, and that it is not equal.
 """)
 
-    st.markdown("**Reminder of the different types of home team advantage**")
+    st.markdown("**Reminder of the different types of home field advantage**")
     st.markdown("""
 - Crowd noise — disrupts the away team's ability to communicate at the line of scrimmage
 - No travel — away teams often travel the day before, disrupting sleep and routine
@@ -1247,11 +1247,11 @@ How each % was calculated: total home wins in that period ÷ total games in that
     st.plotly_chart(fig_p,use_container_width=True)
 
     st.markdown("""
-From this bar chart, we can see that the home team advantage is slowly decreasing, this is because many away teams have actually adapted to the disadvantage they have, and have tried to mitigate it, as best as possible – this can be done by preparing for the home team's environment, making travel as fluid as possible or by adapting their communication so its not affected by the loud crowd noise. 2020-2025 is especially low due to covid, this is because the home team didn't have crowd noise – which is one of the main factors in the home team advantage. However, despite the home team win % decreasing, the advantage is still there, giving them an edge in the model's predictions, but in the future, the model may start to discover that the home team advantage is almost redundant, which may drastically change how the model starts predicting future games, even removing the intercept that gives the home team an edge in the model's predictions.
+From this bar chart, we can see that the home field advantage is slowly decreasing, this is because many away teams have actually adapted to the disadvantage they have, and have tried to mitigate it, as best as possible – this can be done by preparing for the home team's environment, making travel as fluid as possible or by adapting their communication so it's not affected by the loud crowd noise. 2020-2025 is especially low due to COVID, this is because the home team didn't have crowd noise – which is one of the main factors in the home field advantage. However, despite the home team win % decreasing, the advantage is still there, giving them an edge in the model's predictions, but in the future, the model may start to discover that the home field advantage is almost redundant, which may drastically change how the model starts predicting future games, even removing the intercept that gives the home team an edge in the model's predictions.
 """)
 
     st.markdown("---")
-    st.subheader("🔍 Evaluation & Future Improvements")
+    st.subheader("⚖️ 8. Evaluation & Future Improvements")
     st.markdown("""
 Building this model has taught me a huge amount about machine learning — not just how to build one, but how to properly test it, question it, and understand where it genuinely struggles. This section is a look at the model's real limitations, and what I'd explore next if I kept developing it.
 
