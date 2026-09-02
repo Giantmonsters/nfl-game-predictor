@@ -921,6 +921,12 @@ This formula is always built specifically to calculate the home team's probabili
     })
     st.dataframe(weight_df.set_index('Stat'), use_container_width=True)
 
+    st.markdown("""
+Some weights are positive and some are negative. A positive weight means that as that stat increases, the home team's chance of winning goes up. So if the Home Team Win Rate increases, the home team will have a better chance of winning — that's why it is a positive stat.
+A negative weight means the opposite — as that stat goes up, the home team's chance of winning goes down. So if the Away Team Avg Points Scored increases, the home team will have a lower chance of winning, as it makes the away team stronger — that's why the stat is negative.
+On the other hand, Away Team Avg Points Conceded is positive — because if the away team's defence concedes a lot, that benefits the home team's winning chances (they can score more).
+""")
+
     ex_h_wr, ex_h_sc, ex_h_co = get_team_stats(scores, "Kansas City Chiefs", 2026)
     ex_a_wr, ex_a_sc, ex_a_co = get_team_stats(scores, "Philadelphia Eagles", 2026)
 
@@ -938,7 +944,7 @@ This formula is always built specifically to calculate the home team's probabili
     ex_prob_home = 1/(1+np.exp(-ex_z))
 
     st.markdown(f"""
-**Step 1 — Calculating z:**
+**Calculating z:**
 ```
 z = {lr.intercept_[0]:.4f} 
     + ({lr.coef_[0][0]:.4f} × {ex_h_wr:.3f}) 
@@ -951,7 +957,7 @@ z = {lr.intercept_[0]:.4f}
 z = {ex_z:.4f}
 ```
 
-**Step 2 — Turning z into a probability:**
+**Turning z into a probability:**
 ```
 Probability of Chiefs winning = 1 ÷ (1 + e^(-{ex_z:.4f})) = {ex_prob_home:.1%}
 Probability of Eagles winning = {1-ex_prob_home:.1%}
