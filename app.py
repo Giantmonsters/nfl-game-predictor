@@ -479,6 +479,17 @@ with tab1:
             st.error("Please select two different teams!")
         else:
             hp,ap,conf,winner,h_wr,h_sc,h_co,a_wr,a_sc,a_co = predict_game(model,scores,get_team_stats,home_team,away_team)
+            st.session_state['last_prediction'] = {
+                'home_team':home_team,'away_team':away_team,'hp':hp,'ap':ap,'conf':conf,'winner':winner,
+                'h_wr':h_wr,'h_sc':h_sc,'h_co':h_co,'a_wr':a_wr,'a_sc':a_sc,'a_co':a_co
+            }
+            st.session_state['pick_saved'] = False
+
+    if 'last_prediction' in st.session_state:
+            pred = st.session_state['last_prediction']
+            home_team,away_team = pred['home_team'],pred['away_team']
+            hp,ap,conf,winner = pred['hp'],pred['ap'],pred['conf'],pred['winner']
+            h_wr,h_sc,h_co,a_wr,a_sc,a_co = pred['h_wr'],pred['h_sc'],pred['h_co'],pred['a_wr'],pred['a_sc'],pred['a_co']
 
             st.markdown("---")
             st.subheader("📊 Prediction Result")
@@ -566,19 +577,19 @@ with tab1:
 
             st.markdown("---")
             st.subheader("🥊 Your NFLNerd Pick")
-            st.markdown("Don't agree with the model? Log your own pick below.")
+            st.markdown("Don't agree with the model? Set your own pick below, then click Save when you're ready.")
             c1, c2 = st.columns(2)
             with c1:
                 your_winner = st.radio("Who do you think wins?", [home_team, away_team], key="your_winner_radio")
             with c2:
                 your_confidence = st.radio("Your confidence", ["🔴 Low", "🟡 Medium", "🟢 High"], key="your_confidence_radio")
 
+            if st.session_state.get('pick_saved'):
+                st.success(f"✅ Pick saved — {your_winner} ({your_confidence}). Change your selections above and click Save again to log a new pick.")
             if st.button("💾 Save My Pick", use_container_width=True):
                 save_pick(home_team, away_team, winner, hp if winner==home_team else ap, conf, your_winner, your_confidence)
-                if your_winner == winner:
-                    st.success(f"Saved! You agree with the model — both picked **{your_winner}**.")
-                else:
-                    st.warning(f"Saved! You picked **{your_winner}**, disagreeing with the model's pick of **{winner}**.")
+                st.session_state['pick_saved'] = True
+                st.rerun()
 
 # ════════════════════════════════════════════
 # TAB 2 — THIS WEEK'S GAMES
