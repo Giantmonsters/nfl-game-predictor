@@ -390,6 +390,27 @@ def get_head_to_head(scores,t1,t2):
             else: w2+=1
     return w1,w2,len(h2h)
 
+PICKS_FILE = "nflnerd_picks.csv"
+
+def load_picks():
+    import os
+    if os.path.exists(PICKS_FILE):
+        return pd.read_csv(PICKS_FILE)
+    return pd.DataFrame(columns=["timestamp","home_team","away_team","model_winner","model_prob","model_confidence","your_winner","your_confidence","agree"])
+
+def save_pick(home_team, away_team, model_winner, model_prob, model_confidence, your_winner, your_confidence):
+    df = load_picks()
+    new_row = {
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "home_team": home_team, "away_team": away_team,
+        "model_winner": model_winner, "model_prob": f"{model_prob:.1%}",
+        "model_confidence": model_confidence,
+        "your_winner": your_winner, "your_confidence": your_confidence,
+        "agree": "Yes" if your_winner == model_winner else "No"
+    }
+    df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+    df.to_csv(PICKS_FILE, index=False)
+
 def predict_game(model, scores, get_team_stats, home, away):
     h_wr,h_sc,h_co=get_team_stats(scores,home,2026)
     a_wr,a_sc,a_co=get_team_stats(scores,away,2026)
@@ -543,6 +564,22 @@ with tab1:
                 st.markdown(f"**✈️ {away_team}**")
                 for _,r in get_recent_form(scores,away_team).iterrows(): st.markdown(r['result'])
 
+            st.markdown("---")
+            st.subheader("🥊 Your NFLNerd Pick")
+            st.markdown("Don't agree with the model? Log your own pick below.")
+            c1, c2 = st.columns(2)
+            with c1:
+                your_winner = st.radio("Who do you think wins?", [home_team, away_team], key="your_winner_radio")
+            with c2:
+                your_confidence = st.radio("Your confidence", ["🔴 Low", "🟡 Medium", "🟢 High"], key="your_confidence_radio")
+
+            if st.button("💾 Save My Pick", use_container_width=True):
+                save_pick(home_team, away_team, winner, hp if winner==home_team else ap, conf, your_winner, your_confidence)
+                if your_winner == winner:
+                    st.success(f"Saved! You agree with the model — both picked **{your_winner}**.")
+                else:
+                    st.warning(f"Saved! You picked **{your_winner}**, disagreeing with the model's pick of **{winner}**.")
+
 # ════════════════════════════════════════════
 # TAB 2 — THIS WEEK'S GAMES
 # ════════════════════════════════════════════
@@ -683,6 +720,24 @@ These rankings will be updated weekly throughout the season alongside my YouTube
 # ════════════════════════════════════════════
 with tab4:
     st.markdown("### 📜 NFLNerd Prediction History")
+
+    st.markdown("#### 🥊 Your Saved Picks vs the Model")
+    st.markdown("Every time you've disagreed (or agreed) with the model on the Predict tab, it's logged here. These are hypothetical matchups you tested — not real upcoming games — so there's no actual result to check against, just a record of where your judgement and the model's line up or differ.")
+
+    picks_df = load_picks()
+    if picks_df.empty:
+        st.info("No picks saved yet. Head to the 🔮 Predict tab, make a prediction, and save your own pick to see it here.")
+    else:
+        agree_count = (picks_df['agree']=='Yes').sum()
+        disagree_count = (picks_df['agree']=='No').sum()
+        c1,c2,c3 = st.columns(3)
+        with c1: st.metric("Total Picks Logged", len(picks_df))
+        with c2: st.metric("Agreed with Model", agree_count)
+        with c3: st.metric("Disagreed with Model", disagree_count)
+        st.dataframe(picks_df.sort_values('timestamp', ascending=False), use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+    st.markdown("### 📅 Official Weekly Predictions")
     st.markdown("A record of every official NFLNerd weekly prediction, logged alongside my YouTube videos.")
     st.markdown("---")
 
