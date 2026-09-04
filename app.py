@@ -513,13 +513,14 @@ accuracy = lr_acc
 all_teams = sorted(CURRENT_NFL_TEAMS)
 
 # ── Tabs ─────────────────────────────────────
-tab1,tab2,tab3,tab4,tab5,tab6,tab7 = st.tabs([
+tab1,tab2,tab3,tab4,tab5,tab6,tab7,tab8 = st.tabs([
     "🔮 Predict",
     "📅 This Week's Games",
     "🏆 Team Rankings",
     "📜 Prediction History",
     "📊 How It Works",
     "🧪 Data Science",
+    "🛠️ New Updates",
     "👤 Who Am I?"
 ])
 
@@ -1398,9 +1399,31 @@ Given this, I chose to keep the all-time historical model. A model that is sligh
 """)
 
 # ════════════════════════════════════════════
-# TAB 7 - WHO AM I?
+# TAB 7 — NEW UPDATES
 # ════════════════════════════════════════════
 with tab7:
+    st.markdown("### 🛠️ New Updates")
+    st.markdown("A running changelog of improvements made to the NFL Game Predictor since the Data Science tab was finalized. Newest updates at the top.")
+    st.markdown("---")
+
+    st.markdown("#### 📅 [Date to add] — Blended model fixes home-advantage-only predictions")
+    st.markdown("""
+While building this NFL Predictor website, a real problem kept coming up when testing the Predict tab: for some matchups, the model would predict a team to win that anyone following the NFL right now would know is clearly the weaker team. For example, testing Arizona Cardinals (Home) vs Los Angeles Rams (Away) - the Rams are widely considered the best team in the NFL heading into this season, and the Cardinals one of the worst - but the model predicted the Cardinals to win, purely off home field advantage. This happens because all-time win rate, averaged across 35 years, doesn't reflect which teams are actually good right now. I did try to fix this in the past by replacing all-time historic data entirely with just the last 3 seasons, to make it more accurate to the current NFL, since how well a team did in the 1990s doesn't reflect how good they are now. The results were that it improved accuracy slightly, but the model's logic stopped making sense, so I reverted it.
+
+So, I tried to improve the model: instead of replacing all-time data, I blended all-time data with data from the 2025 season - 70 (historic data)/30 (new data) split. This keeps the large, stable all-time data as the main source powering the predictor, while giving the model a meaningful nudge toward current team strength.
+
+The results, tested the same way as before:
+
+* Accuracy: 57.7% → 60.0%
+* The Cardinals vs Rams case was fixed: Rams now correctly predicted to win (57.7% vs 42.3%), instead of the Cardinals
+
+Since this genuinely passed every check, unlike the 3-season experiment, I kept it - but only for live predictions. The model described throughout Sections 1-6 of the Data Science tab is still the original, all-time-only model, since this is a newer update. However, the predict model above is what actually powers the Predict tab and This Week's Games tab.
+""")
+
+# ════════════════════════════════════════════
+# TAB 8 — WHO AM I?
+# ════════════════════════════════════════════
+with tab8:
     st.markdown("### 👤 Who Am I?")
     st.markdown("---")
     c1,c2 = st.columns([1,2])
