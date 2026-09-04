@@ -1406,7 +1406,7 @@ with tab7:
     st.markdown("A running changelog of improvements made to the NFL Game Predictor since the Data Science tab was finalized. Newest updates at the top.")
     st.markdown("---")
 
-    st.markdown("#### 📅 [Date to add] — Blended model fixes home-advantage-only predictions")
+    st.markdown("#### 📅 [03/09/2026] — Blended model fixes home-advantage-only predictions")
     st.markdown("""
 While building this NFL Predictor website, a real problem kept coming up when testing the Predict tab: for some matchups, the model would predict a team to win that anyone following the NFL right now would know is clearly the weaker team. For example, testing Arizona Cardinals (Home) vs Los Angeles Rams (Away) - the Rams are widely considered the best team in the NFL heading into this season, and the Cardinals one of the worst - but the model predicted the Cardinals to win, purely off home field advantage. This happens because all-time win rate, averaged across 35 years, doesn't reflect which teams are actually good right now. I did try to fix this in the past by replacing all-time historic data entirely with just the last 3 seasons, to make it more accurate to the current NFL, since how well a team did in the 1990s doesn't reflect how good they are now. The results were that it improved accuracy slightly, but the model's logic stopped making sense, so I reverted it.
 
