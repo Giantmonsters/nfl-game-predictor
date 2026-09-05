@@ -488,18 +488,15 @@ def fetch_espn_team_season_stats(team_name, debug=False):
     season'), not per-player stats, which is why fetch_espn_key_players uses
     a different data source for individual players.
 
-    Matching is done PER-CATEGORY rather than by flattening all stats into
-    one global name->value dict, because some stat names are reused across
-    categories with different meanings — e.g. 'sacks' means sacks ALLOWED
-    under the 'passing' category (offense being sacked) but sacks MADE under
-    a defensive category (offense's opponents being sacked). Flattening by
-    name alone would silently let one of those overwrite the other.
-
-    The defensive fields (sacks made, yards allowed) were not directly
-    confirmed via live debugging — only the offensive fields were seen in the
-    actual response. Several likely category/stat name candidates are tried
-    for each, and if none match, that line is simply omitted rather than
-    showing something wrong.
+    Matching is done PER-CATEGORY with EXACT category/stat names (the full
+    category and stat name list was confirmed via live debugging), rather
+    than flattening all stats into one global name->value dict, because some
+    stat names are reused across categories with different meanings — e.g.
+    'sacks' means sacks ALLOWED under 'passing' (offense being sacked) but
+    sacks MADE under 'defensive' (opponents being sacked), and
+    'interceptions' means INTs THROWN under 'passing' but INTs MADE under
+    'defensiveInterceptions'. Flattening by name alone would let one
+    silently overwrite the other.
 
     Returns [] on any failure so the UI can show a graceful fallback message
     instead of breaking."""
@@ -521,43 +518,35 @@ def fetch_espn_team_season_stats(team_name, debug=False):
                 st.json(overview)
             return categories
 
-        def find_stat(categories, category_substr, stat_name_candidates):
-            """Search categories whose name contains category_substr, and
-            within those, return the displayValue of the first stat whose
-            name exactly matches any of stat_name_candidates (tried in order)."""
+        def find_stat(categories, category_name, stat_name):
+            """Return the displayValue of stat_name within the category
+            whose name exactly matches category_name (both confirmed real
+            names from live debugging), or None if not found."""
             for cat in categories:
-                cname = cat.get("name", "").lower()
-                if category_substr not in cname:
-                    continue
-                stats_by_name = {s.get("name", "").lower(): s.get("displayValue", "")
-                                  for s in cat.get("stats", [])}
-                for candidate in stat_name_candidates:
-                    if candidate in stats_by_name:
-                        return stats_by_name[candidate]
+                if cat.get("name", "").lower() == category_name:
+                    for s in cat.get("stats", []):
+                        if s.get("name", "").lower() == stat_name:
+                            return s.get("displayValue", "")
             return None
 
-        # (category substring, [candidate exact stat names to try in order], label, order)
-        # All 8 confirmed via live debug — the full category/stat list was
-        # inspected directly. Note: ESPN's public stats endpoint has no
-        # "yards allowed" field anywhere across any category (confirmed by
-        # listing every stat name in every category), so that stat isn't
-        # included here — it genuinely isn't available, not a naming guess
-        # that missed.
+        # (exact category name, exact stat name, label, order) — all confirmed
+        # real via live debugging of the full category/stat list.
         wanted = [
-            ("passing", ["totalpointspergame"],                       "⭐ Points/Game",     0),
-            ("passing", ["passingyards"],                              "🎯 Pass Yards",      1),
-            ("passing", ["passingtouchdowns"],                         "🎯 Pass TDs",        2),
-            ("rushing", ["rushingyards"],                              "🏃 Rush Yards",      3),
-            ("rushing", ["rushingtouchdowns"],                         "🏃 Rush TDs",        4),
-            ("passing", ["interceptions"],                             "🧤 INTs Thrown",     5),
-            ("passing", ["sacks"],                                     "💥 Sacks Allowed",   6),
-            ("defen",   ["sacks", "totalsacks", "defensivesacks"],     "🛡️ Sacks Made",      7),
+            ("passing",                 "totalpointspergame", "⭐ Points/Game",   0),
+            ("passing",                 "passingyards",       "🎯 Pass Yards",    1),
+            ("passing",                 "passingtouchdowns",  "🎯 Pass TDs",      2),
+            ("rushing",                 "rushingyards",       "🏃 Rush Yards",    3),
+            ("rushing",                 "rushingtouchdowns",  "🏃 Rush TDs",      4),
+            ("passing",                 "interceptions",      "🧤 INTs Thrown",   5),
+            ("passing",                 "sacks",              "💥 Sacks Allowed", 6),
+            ("defensive",                "sacks",              "🛡️ Sacks Made",    7),
+            ("defensiveinterceptions",  "interceptions",      "🧤 INTs Made",     8),
         ]
 
         def parse(categories):
             out = []
-            for category_substr, candidates, label, order in wanted:
-                val = find_stat(categories, category_substr, candidates)
+            for category_name, stat_name, label, order in wanted:
+                val = find_stat(categories, category_name, stat_name)
                 if val is not None:
                     out.append({"label": label, "value": val, "order": order})
             return out
