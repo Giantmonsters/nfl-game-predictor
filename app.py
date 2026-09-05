@@ -482,24 +482,56 @@ def fetch_espn_key_players(team_name, debug=False):
 
 @st.cache_data(ttl=3600)
 def fetch_espn_team_standing(team_name, debug=False):
-    """Team's current division/conference standing (e.g. '3rd in AFC West'),
-    pulled from ESPN's teams/{abbr} endpoint. NOT yet confirmed via live
-    debugging — 'standingSummary' is a commonly-present field on this
-    endpoint's team object in general, but hasn't been directly verified
-    for this specific app. Returns None on any failure or if the field
-    isn't present, so the UI can show a graceful fallback message."""
+    """Team's current division/conference standing, pulled from ESPN's
+    league-wide standings endpoint.
+
+    (Earlier attempt used teams/{abbr} and its 'standingSummary' field —
+    live debugging confirmed that field doesn't exist on this endpoint at
+    all, full key list had no such field. Switched to the actual standings
+    endpoint instead.)
+
+    The exact response shape isn't confirmed live yet, so this recursively
+    scans the JSON tree for any entry containing this team's abbreviation
+    alongside a 'stats' list, and looks for a rank-like stat within it.
+    Returns None on any failure or if nothing matching is found, so the UI
+    can show a graceful fallback message. debug=True dumps what was found."""
     try:
         abbr = ESPN_ABBR.get(team_name)
         if not abbr:
             return None
-        url = f"https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams/{abbr}"
+
+        url = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/standings"
         r = requests.get(url, timeout=10)
-        team = r.json().get("team", {})
+        data = r.json()
+
+        def find_team_entries(obj, found):
+            if isinstance(obj, dict):
+                team_info = obj.get("team")
+                if isinstance(team_info, dict) and team_info.get("abbreviation", "").lower() == abbr:
+                    found.append(obj)
+                for v in obj.values():
+                    find_team_entries(v, found)
+            elif isinstance(obj, list):
+                for item in obj:
+                    find_team_entries(item, found)
+
+        entries = []
+        find_team_entries(data, entries)
+
         if debug:
-            st.write(f"DEBUG (standing) — all top-level team keys for {team_name}:")
-            st.json(list(team.keys()))
-            st.write(f"standingSummary value: {team.get('standingSummary')!r}")
-        return team.get("standingSummary")
+            st.write(f"DEBUG (standing) — HTTP {r.status_code}, {len(entries)} matching entries found for {team_name}:")
+            st.json(entries if entries else {"note": "no entry found containing this team's abbreviation + a 'team' key",
+                                               "top_level_keys": list(data.keys()) if isinstance(data, dict) else None})
+
+        for entry in entries:
+            stats = entry.get("stats", [])
+            for s in stats:
+                name = s.get("name", "").lower()
+                if "divisionrank" in name or name == "rank":
+                    val = s.get("displayValue") or s.get("value")
+                    if val:
+                        return f"#{val} in division"
+        return None
     except Exception:
         return None
 
@@ -1059,7 +1091,7 @@ with tab1:
                         if inj['detail']:
                             st.caption(inj['detail'])
                 else:
-                    st.caption("No injuries reported, or data unavailable right now.")
+                    st.caption("No injuries reported right now — this is likely because injury reports typically aren't published until practice starts in the week of a game.")
             with c2:
                 st.markdown(f"**✈️ {away_team}**")
                 if away_injuries:
@@ -1070,7 +1102,7 @@ with tab1:
                         if inj['detail']:
                             st.caption(inj['detail'])
                 else:
-                    st.caption("No injuries reported, or data unavailable right now.")
+                    st.caption("No injuries reported right now — this is likely because injury reports typically aren't published until practice starts in the week of a game.")
             if not home_injuries and not away_injuries:
                 with st.expander("🛠️ Debug: inspect raw ESPN response (injuries)"):
                     st.caption("Shows ESPN's raw injuries response, so the parsing can be corrected if the shape doesn't match.")
