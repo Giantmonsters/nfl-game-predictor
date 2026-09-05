@@ -879,13 +879,11 @@ with tab1:
                 else:
                     st.caption("Player stats unavailable right now.")
 
-            if not home_players and not away_players:
-                with st.expander("🛠️ Debug: inspect raw ESPN response"):
-                    st.caption("Temporary tool to see exactly what ESPN's API returns, so the Key Players feature can be fixed if the field names don't match.")
+            if mode == "per_game":
+                with st.expander("🛠️ Debug: inspect raw ESPN response (season-stats attempt)"):
+                    st.caption("The season-stats attempt fell back to per-game data. This shows exactly what the season endpoint returned, so it can be fixed if possible.")
                     _fetch_espn_key_players_season.clear()
-                    _fetch_espn_key_players_per_game.clear()
                     _fetch_espn_key_players_season(home_team, debug=True)
-                    _fetch_espn_key_players_per_game(home_team, debug=True)
 
             st.markdown("---")
             st.subheader("🥊 Your NFLNerd Pick")
