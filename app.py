@@ -429,6 +429,13 @@ def _fetch_espn_key_players_season(team_name, debug=False):
             url = f"https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams/{abbr}/statistics"
             params = {"season": season} if season else {}
             r = requests.get(url, params=params, timeout=10)
+            if debug:
+                st.write(f"DEBUG (season attempt) — HTTP {r.status_code} from {url} (season={season}):")
+                try:
+                    st.json(r.json())
+                except Exception:
+                    st.write(f"Response was not valid JSON. Raw text (first 1000 chars):")
+                    st.code(r.text[:1000])
             return r.json()
 
         def find_category_dicts(obj, found):
