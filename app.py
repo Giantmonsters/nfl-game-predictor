@@ -8,6 +8,7 @@ from xgboost import XGBClassifier
 import plotly.graph_objects as go
 import numpy as np
 import requests
+import re
 from datetime import datetime
 
 # ── Page config ──────────────────────────────
@@ -122,6 +123,45 @@ p, div, span, li { font-family: 'Inter', sans-serif; }
 def explainer(text): st.markdown(f'<div class="explainer-box">{text}</div>', unsafe_allow_html=True)
 def takeaway(text):  st.markdown(f'<div class="takeaway-box">{text}</div>', unsafe_allow_html=True)
 def infobox(text):   st.markdown(f'<div class="info-box">{text}</div>', unsafe_allow_html=True)
+
+def _parse_stat_number(s):
+    """Best-effort parse of the leading number out of a stat's display
+    string (handles thousands separators and % signs), for COMPARISON
+    purposes only — never used for the text actually shown to the user.
+    Returns None if nothing parseable, so callers can skip coloring rather
+    than guess."""
+    if s is None:
+        return None
+    cleaned = str(s).replace(",", "").replace("%", "").strip()
+    match = re.match(r"^-?\d+(\.\d+)?", cleaned)
+    if not match:
+        return None
+    try:
+        return float(match.group(0))
+    except ValueError:
+        return None
+
+def _compare_stat_pair(home_display, away_display, home_num=None, away_num=None):
+    """Given a stat's display text for each side (and optionally the real
+    underlying numeric value for each, when the display text is a compound
+    string like '22/34, 198 YDS' where parsing the display text itself
+    wouldn't give the right number to compare), return (home_html,
+    away_html) with the higher value in green, the lower in red, and the
+    numeric difference shown next to the winner. Falls back to plain,
+    uncolored text if either side's number can't be determined."""
+    h = home_num if home_num is not None else _parse_stat_number(home_display)
+    a = away_num if away_num is not None else _parse_stat_number(away_display)
+    if h is None or a is None or h == a:
+        return home_display, away_display
+    diff = abs(h - a)
+    diff_str = f"+{diff:.1f}" if diff % 1 else f"+{int(diff)}"
+    if h > a:
+        home_html = f'<span class="movement-up">{home_display}</span> <span class="movement-up">({diff_str})</span>'
+        away_html = f'<span class="movement-down">{away_display}</span>'
+    else:
+        home_html = f'<span class="movement-down">{home_display}</span>'
+        away_html = f'<span class="movement-up">{away_display}</span> <span class="movement-up">({diff_str})</span>'
+    return home_html, away_html
 
 # ── Constants ────────────────────────────────
 CURRENT_NFL_TEAMS = [
@@ -405,6 +445,11 @@ def _fetch_espn_key_players_per_game(team_name, debug=False):
                     "player": athlete.get("displayName", "Unknown"),
                     "position": athlete.get("position", {}).get("abbreviation", ""),
                     "stat": top.get("displayValue", ""),
+                    # Raw numeric value from ESPN (e.g. 198 for "198 YDS"),
+                    # used for comparison since 'stat' is a compound string
+                    # like "22/34, 198 YDS, 1 INT" that can't be parsed
+                    # reliably for the number that actually matters.
+                    "raw_value": top.get("value", None),
                 })
                 found_labels.add(label)
             return out
@@ -876,46 +921,60 @@ with tab1:
             # Team season stats — real season totals from ESPN (confirmed working)
             st.markdown("---")
             st.subheader("📈 Team Season Stats")
-            st.caption("Season-long team totals so far.")
+            st.caption("Season-long team totals so far. Higher value in green, lower in red, with the difference shown.")
+            home_season_stats = fetch_espn_team_season_stats(home_team)
+            away_season_stats = fetch_espn_team_season_stats(away_team)
+            home_stat_dict = {s['label']: s['value'] for s in home_season_stats} if home_season_stats else {}
+            away_stat_dict = {s['label']: s['value'] for s in away_season_stats} if away_season_stats else {}
             c1,c2 = st.columns(2)
             with c1:
                 st.markdown(f"**🏠 {home_team}**")
-                home_season_stats = fetch_espn_team_season_stats(home_team)
                 if home_season_stats:
                     for s in home_season_stats:
-                        st.markdown(f"{s['label']}: **{s['value']}**")
+                        home_html, _ = _compare_stat_pair(s['value'], away_stat_dict.get(s['label']))
+                        st.markdown(f"{s['label']}: {home_html}", unsafe_allow_html=True)
                 else:
                     st.caption("Season stats unavailable right now.")
             with c2:
                 st.markdown(f"**✈️ {away_team}**")
-                away_season_stats = fetch_espn_team_season_stats(away_team)
                 if away_season_stats:
                     for s in away_season_stats:
-                        st.markdown(f"{s['label']}: **{s['value']}**")
+                        _, away_html = _compare_stat_pair(home_stat_dict.get(s['label']), s['value'])
+                        st.markdown(f"{s['label']}: {away_html}", unsafe_allow_html=True)
                 else:
                     st.caption("Season stats unavailable right now.")
 
             # Top performers from each team's most recent completed game
             st.markdown("---")
             st.subheader("🌟 Top Performers (Most Recent Game)")
-            st.caption("Each team's top statistical performers from their last completed game.")
+            st.caption("Each team's top statistical performers from their last completed game. Higher value in green, lower in red, with the difference shown.")
             home_players = fetch_espn_key_players(home_team)
             away_players = fetch_espn_key_players(away_team)
+            home_player_dict = {p['category']: p for p in home_players} if home_players else {}
+            away_player_dict = {p['category']: p for p in away_players} if away_players else {}
             c1,c2 = st.columns(2)
             with c1:
                 st.markdown(f"**🏠 {home_team}**")
                 if home_players:
                     for p in home_players:
+                        away_p = away_player_dict.get(p['category'])
+                        home_html, _ = _compare_stat_pair(
+                            p['stat'], away_p['stat'] if away_p else None,
+                            home_num=p['raw_value'], away_num=away_p['raw_value'] if away_p else None)
                         pos = f" ({p['position']})" if p['position'] else ""
-                        st.markdown(f"{p['category']}: **{p['player']}**{pos} — {p['stat']}")
+                        st.markdown(f"{p['category']}: **{p['player']}**{pos} — {home_html}", unsafe_allow_html=True)
                 else:
                     st.caption("Player stats unavailable right now.")
             with c2:
                 st.markdown(f"**✈️ {away_team}**")
                 if away_players:
                     for p in away_players:
+                        home_p = home_player_dict.get(p['category'])
+                        _, away_html = _compare_stat_pair(
+                            home_p['stat'] if home_p else None, p['stat'],
+                            home_num=home_p['raw_value'] if home_p else None, away_num=p['raw_value'])
                         pos = f" ({p['position']})" if p['position'] else ""
-                        st.markdown(f"{p['category']}: **{p['player']}**{pos} — {p['stat']}")
+                        st.markdown(f"{p['category']}: **{p['player']}**{pos} — {away_html}", unsafe_allow_html=True)
                 else:
                     st.caption("Player stats unavailable right now.")
 
