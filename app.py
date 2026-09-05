@@ -357,9 +357,11 @@ def _fetch_espn_key_players_per_game(team_name, debug=False):
             return completed[0] if completed else None
 
         wanted = [
-            ("pass",    "🎯 Passing",   0),
-            ("rush",    "🏃 Rushing",   1),
-            ("receiv",  "🙌 Receiving", 2),
+            ("pass",    "🎯 Passing",       0),
+            ("rush",    "🏃 Rushing",       1),
+            ("receiv",  "🙌 Receiving",     2),
+            ("tackl",   "🛡️ Tackles",       3),
+            ("sack",    "💥 Sacks",         4),
         ]
 
         def parse(event):
@@ -370,8 +372,10 @@ def _fetch_espn_key_players_per_game(team_name, debug=False):
             team_c = next((c for c in competitors
                             if c.get("team", {}).get("abbreviation", "").lower() == abbr), None)
             if debug:
-                st.write(f"DEBUG (per-game fallback) — competitor leaders block for {team_name} (event {event.get('id')}):")
-                st.json(team_c.get("leaders", []) if team_c else {"note": "no matching competitor found"})
+                leaders_block = team_c.get("leaders", []) if team_c else []
+                st.write(f"DEBUG (per-game fallback) — category names available for {team_name} (event {event.get('id')}):")
+                st.json([cat.get("name", "?") for cat in leaders_block] if leaders_block
+                         else {"note": "no matching competitor found, or no leaders block at all"})
             if not team_c:
                 return []
             out = []
@@ -411,7 +415,7 @@ def _fetch_espn_key_players_per_game(team_name, debug=False):
         return []
 
 
-def fetch_espn_key_players(team_name):
+def fetch_espn_key_players(team_name, debug=False):
     """Top performers from a team's most recent completed regular-season game.
 
     (An earlier attempt tried to find season-aggregate PLAYER stats —
@@ -421,11 +425,11 @@ def fetch_espn_key_players(team_name):
     public API. That confirmed team-level data now powers the separate
     "Team Season Stats" section instead. This function is the per-game
     fallback that was already confirmed working, kept as the sole source.)"""
-    return _fetch_espn_key_players_per_game(team_name)
+    return _fetch_espn_key_players_per_game(team_name, debug=debug)
 
 
 @st.cache_data(ttl=3600)
-def fetch_espn_team_season_stats(team_name):
+def fetch_espn_team_season_stats(team_name, debug=False):
     """Team-level season stat totals, pulled from ESPN's teams/{abbr}/statistics
     endpoint. Confirmed working via live debugging on 2025-09 — this endpoint
     returns aggregate TEAM totals (e.g. 'Chiefs passed for 3,927 yards this
@@ -457,7 +461,13 @@ def fetch_espn_team_season_stats(team_name):
             params = {"season": season} if season else {}
             r = requests.get(url, params=params, timeout=10)
             data = r.json()
-            return data.get("results", {}).get("stats", {}).get("categories", [])
+            categories = data.get("results", {}).get("stats", {}).get("categories", [])
+            if debug:
+                st.write(f"DEBUG (team season stats) — all category/stat names for {team_name} (season={season}):")
+                overview = {cat.get("name", "?"): [s.get("name", "?") for s in cat.get("stats", [])]
+                            for cat in categories}
+                st.json(overview)
+            return categories
 
         def find_stat(categories, category_substr, stat_name_candidates):
             """Search categories whose name contains category_substr, and
@@ -876,6 +886,13 @@ with tab1:
                 else:
                     st.caption("Season stats unavailable right now.")
 
+            home_labels = {s['label'] for s in home_season_stats}
+            if "📉 Yards Allowed" not in home_labels:
+                with st.expander("🛠️ Debug: find real 'Yards Allowed' field name"):
+                    st.caption("Lists every category and stat name ESPN actually returns, so the defensive field names can be corrected.")
+                    fetch_espn_team_season_stats.clear()
+                    fetch_espn_team_season_stats(home_team, debug=True)
+
             # Top performers from each team's most recent completed game
             st.markdown("---")
             st.subheader("🌟 Top Performers (Most Recent Game)")
@@ -899,6 +916,13 @@ with tab1:
                         st.markdown(f"{p['category']}: **{p['player']}**{pos} — {p['stat']}")
                 else:
                     st.caption("Player stats unavailable right now.")
+
+            home_player_cats = {p['category'] for p in home_players}
+            if "🛡️ Tackles" not in home_player_cats or "💥 Sacks" not in home_player_cats:
+                with st.expander("🛠️ Debug: check for Tackles/Sacks leader categories"):
+                    st.caption("Lists every 'leader' category ESPN returns for this game, to confirm whether a tackles/sacks leader exists at all.")
+                    _fetch_espn_key_players_per_game.clear()
+                    _fetch_espn_key_players_per_game(home_team, debug=True)
 
             st.markdown("---")
             st.subheader("🥊 Your NFLNerd Pick")
