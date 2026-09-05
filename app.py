@@ -332,10 +332,11 @@ def fetch_espn_recent_form(team_name, n=5):
 
 @st.cache_data(ttl=3600)
 def _fetch_espn_key_players_per_game(team_name, debug=False):
-    """FALLBACK: top performers for a team's most recent completed regular-
-    season game — passing/rushing/receiving only. This is the version
-    confirmed working via live debugging; used when the season-aggregate
-    attempt (_fetch_espn_key_players_season) comes back empty."""
+    """Top performers for a team's most recent completed regular-season game —
+    passing/rushing/receiving only. This is the confirmed-working data source
+    used directly by fetch_espn_key_players (a separate attempt at
+    season-aggregate player stats was tried and confirmed not to exist in
+    ESPN's public API — see fetch_espn_key_players's docstring)."""
     try:
         abbr = ESPN_ABBR.get(team_name)
         if not abbr:
@@ -410,102 +411,17 @@ def _fetch_espn_key_players_per_game(team_name, debug=False):
         return []
 
 
-@st.cache_data(ttl=3600)
-def _fetch_espn_key_players_season(team_name, debug=False):
-    """EXPERIMENTAL: attempt at season-aggregate team stat leaders, including
-    defense (tackles/sacks/interceptions), via ESPN's undocumented
-    teams/{abbr}/statistics endpoint. Not yet verified against a live
-    response — recursively scans the ENTIRE JSON tree for anything shaped
-    like {"name": ..., "leaders": [{"athlete": ..., "displayValue": ...}]},
-    since the real nesting/field names for this endpoint are unknown.
-    Returns [] on any failure or if nothing matching is found, so the caller
-    can fall back to the known-working per-game version."""
-    try:
-        abbr = ESPN_ABBR.get(team_name)
-        if not abbr:
-            return []
+def fetch_espn_key_players(team_name):
+    """Top performers from a team's most recent completed regular-season game.
 
-        def get_raw(season=None):
-            url = f"https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams/{abbr}/statistics"
-            params = {"season": season} if season else {}
-            r = requests.get(url, params=params, timeout=10)
-            if debug:
-                st.write(f"DEBUG (season attempt) — HTTP {r.status_code} from {url} (season={season}):")
-                try:
-                    st.json(r.json())
-                except Exception:
-                    st.write(f"Response was not valid JSON. Raw text (first 1000 chars):")
-                    st.code(r.text[:1000])
-            return r.json()
-
-        def find_category_dicts(obj, found):
-            if isinstance(obj, dict):
-                if isinstance(obj.get("leaders"), list) and "name" in obj:
-                    found.append(obj)
-                for v in obj.values():
-                    find_category_dicts(v, found)
-            elif isinstance(obj, list):
-                for item in obj:
-                    find_category_dicts(item, found)
-
-        wanted = [
-            ("pass",       "🎯 Passing",   0),
-            ("rush",       "🏃 Rushing",   1),
-            ("receiv",     "🙌 Receiving", 2),
-            ("tackl",      "🛡️ Tackles",   3),
-            ("sack",       "💥 Sacks",     4),
-            ("intercept",  "🧤 INTs",      5),
-        ]
-
-        def parse(data):
-            found = []
-            find_category_dicts(data, found)
-            if debug:
-                st.write(f"DEBUG (season attempt) — {len(found)} category-shaped dicts found for {team_name}:")
-                st.json(found)
-            out = []
-            found_labels = set()
-            for cat in found:
-                name = str(cat.get("name", "")).lower()
-                match = next(((label, order) for key, label, order in wanted
-                              if key in name and label not in found_labels), None)
-                if not match:
-                    continue
-                label, order = match
-                lst = cat.get("leaders", [])
-                if not lst:
-                    continue
-                top = lst[0]
-                athlete = top.get("athlete", {})
-                out.append({
-                    "category": label,
-                    "order": order,
-                    "player": athlete.get("displayName", "Unknown"),
-                    "position": athlete.get("position", {}).get("abbreviation", ""),
-                    "stat": top.get("displayValue", ""),
-                })
-                found_labels.add(label)
-            return out
-
-        out = parse(get_raw())
-        if not out:
-            out = parse(get_raw(season=2025))
-        out.sort(key=lambda x: x["order"])
-        return out
-    except Exception:
-        return []
-
-
-def fetch_espn_key_players(team_name, debug=False):
-    """Public entry point: tries season-aggregate stats (with defense) first;
-    falls back to per-game stats (offense only) if that comes back empty.
-    Returns (players, mode) where mode is 'season' or 'per_game' so the UI
-    can label the section accurately."""
-    season_out = _fetch_espn_key_players_season(team_name, debug=debug)
-    if season_out:
-        return season_out, "season"
-    per_game_out = _fetch_espn_key_players_per_game(team_name, debug=debug)
-    return per_game_out, "per_game"
+    (An earlier attempt tried to find season-aggregate PLAYER stats —
+    including defense — via teams/{abbr}/statistics. Live debugging
+    confirmed that endpoint only returns TEAM-level season totals, not
+    per-player data, so per-player season stats aren't available from ESPN's
+    public API. That confirmed team-level data now powers the separate
+    "Team Season Stats" section instead. This function is the per-game
+    fallback that was already confirmed working, kept as the sole source.)"""
+    return _fetch_espn_key_players_per_game(team_name)
 
 
 @st.cache_data(ttl=3600)
@@ -516,11 +432,18 @@ def fetch_espn_team_season_stats(team_name):
     season'), not per-player stats, which is why fetch_espn_key_players uses
     a different data source for individual players.
 
-    Stats are flattened across all categories and looked up by the stat's own
-    internal 'name' field, since the confirmed live response nested some
-    team-wide totals (like totalPointsPerGame) inside the 'passing' category
-    rather than a dedicated one — matching by name directly, not by which
-    category it happened to sit in, avoids depending on that.
+    Matching is done PER-CATEGORY rather than by flattening all stats into
+    one global name->value dict, because some stat names are reused across
+    categories with different meanings — e.g. 'sacks' means sacks ALLOWED
+    under the 'passing' category (offense being sacked) but sacks MADE under
+    a defensive category (offense's opponents being sacked). Flattening by
+    name alone would silently let one of those overwrite the other.
+
+    The defensive fields (sacks made, yards allowed) were not directly
+    confirmed via live debugging — only the offensive fields were seen in the
+    actual response. Several likely category/stat name candidates are tried
+    for each, and if none match, that line is simply omitted rather than
+    showing something wrong.
 
     Returns [] on any failure so the UI can show a graceful fallback message
     instead of breaking."""
@@ -529,46 +452,61 @@ def fetch_espn_team_season_stats(team_name):
         if not abbr:
             return []
 
-        def get_flat(season=None):
+        def get_categories(season=None):
             url = f"https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams/{abbr}/statistics"
             params = {"season": season} if season else {}
             r = requests.get(url, params=params, timeout=10)
             data = r.json()
-            flat = {}
-            categories = data.get("results", {}).get("stats", {}).get("categories", [])
-            for cat in categories:
-                for s in cat.get("stats", []):
-                    name = s.get("name", "").lower()
-                    if name and name not in flat:
-                        flat[name] = s.get("displayValue", "")
-            return flat
+            return data.get("results", {}).get("stats", {}).get("categories", [])
 
-        # (stat's internal 'name' field — confirmed real for the first 3 via
-        # live debug; the rest are the same endpoint's likely companion
-        # fields and degrade gracefully via the "if key in flat" check below
-        # if any turn out not to exist)
+        def find_stat(categories, category_substr, stat_name_candidates):
+            """Search categories whose name contains category_substr, and
+            within those, return the displayValue of the first stat whose
+            name exactly matches any of stat_name_candidates (tried in order)."""
+            for cat in categories:
+                cname = cat.get("name", "").lower()
+                if category_substr not in cname:
+                    continue
+                stats_by_name = {s.get("name", "").lower(): s.get("displayValue", "")
+                                  for s in cat.get("stats", [])}
+                for candidate in stat_name_candidates:
+                    if candidate in stats_by_name:
+                        return stats_by_name[candidate]
+            return None
+
+        # (category substring, [candidate exact stat names to try in order], label, order)
+        # First 7 confirmed via live debug (all under the 'passing'/'rushing' categories).
+        # Last 2 (defense) are best-guess candidates, not yet confirmed live.
         wanted = [
-            ("totalpointspergame",  "⭐ Points/Game",     0),
-            ("passingyards",        "🎯 Pass Yards",      1),
-            ("passingtouchdowns",   "🎯 Pass TDs",        2),
-            ("rushingyards",        "🏃 Rush Yards",      3),
-            ("rushingtouchdowns",   "🏃 Rush TDs",        4),
-            ("interceptions",       "🧤 INTs Thrown",     5),
-            ("sacks",               "💥 Sacks Allowed",   6),
+            ("passing", ["totalpointspergame"],                       "⭐ Points/Game",     0),
+            ("passing", ["passingyards"],                              "🎯 Pass Yards",      1),
+            ("passing", ["passingtouchdowns"],                         "🎯 Pass TDs",        2),
+            ("rushing", ["rushingyards"],                              "🏃 Rush Yards",      3),
+            ("rushing", ["rushingtouchdowns"],                         "🏃 Rush TDs",        4),
+            ("passing", ["interceptions"],                             "🧤 INTs Thrown",     5),
+            ("passing", ["sacks"],                                     "💥 Sacks Allowed",   6),
+            ("defen",   ["sacks", "totalsacks", "defensivesacks"],     "🛡️ Sacks Made",      7),
+            ("defen",   ["yardsallowed", "totalyardsallowed", "yardsallowedpergame"],
+                                                                        "📉 Yards Allowed",   8),
         ]
 
-        flat = get_flat()
-        if not flat:
-            flat = get_flat(season=2025)
+        def parse(categories):
+            out = []
+            for category_substr, candidates, label, order in wanted:
+                val = find_stat(categories, category_substr, candidates)
+                if val is not None:
+                    out.append({"label": label, "value": val, "order": order})
+            return out
 
-        out = [{"label": label, "value": flat[key], "order": order}
-               for key, label, order in wanted if key in flat]
+        categories = get_categories()
+        out = parse(categories)
+        if not out:
+            categories = get_categories(season=2025)
+            out = parse(categories)
         out.sort(key=lambda x: x["order"])
         return out
     except Exception:
         return []
-
-
 
 
 
@@ -938,19 +876,12 @@ with tab1:
                 else:
                     st.caption("Season stats unavailable right now.")
 
-            # Key players — season stats if available (incl. defense), else most-recent-game fallback
+            # Top performers from each team's most recent completed game
             st.markdown("---")
-            home_players, home_mode = fetch_espn_key_players(home_team)
-            away_players, away_mode = fetch_espn_key_players(away_team)
-            # If either side got season data, label the section as season stats —
-            # otherwise both fell back to per-game
-            mode = "season" if (home_mode == "season" or away_mode == "season") else "per_game"
-            if mode == "season":
-                st.subheader("🌟 Key Players (Season Stats)")
-                st.caption("Each team's leading players this season, offense and defense.")
-            else:
-                st.subheader("🌟 Top Performers (Most Recent Game)")
-                st.caption("Season-long stats weren't available, so this shows each team's top performers from their last completed game instead.")
+            st.subheader("🌟 Top Performers (Most Recent Game)")
+            st.caption("Each team's top statistical performers from their last completed game.")
+            home_players = fetch_espn_key_players(home_team)
+            away_players = fetch_espn_key_players(away_team)
             c1,c2 = st.columns(2)
             with c1:
                 st.markdown(f"**🏠 {home_team}**")
@@ -968,12 +899,6 @@ with tab1:
                         st.markdown(f"{p['category']}: **{p['player']}**{pos} — {p['stat']}")
                 else:
                     st.caption("Player stats unavailable right now.")
-
-            if mode == "per_game":
-                with st.expander("🛠️ Debug: inspect raw ESPN response (season-stats attempt)"):
-                    st.caption("The season-stats attempt fell back to per-game data. This shows exactly what the season endpoint returned, so it can be fixed if possible.")
-                    _fetch_espn_key_players_season.clear()
-                    _fetch_espn_key_players_season(home_team, debug=True)
 
             st.markdown("---")
             st.subheader("🥊 Your NFLNerd Pick")
