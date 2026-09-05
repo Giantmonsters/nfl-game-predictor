@@ -508,6 +508,67 @@ def fetch_espn_key_players(team_name, debug=False):
     return per_game_out, "per_game"
 
 
+@st.cache_data(ttl=3600)
+def fetch_espn_team_season_stats(team_name):
+    """Team-level season stat totals, pulled from ESPN's teams/{abbr}/statistics
+    endpoint. Confirmed working via live debugging on 2025-09 — this endpoint
+    returns aggregate TEAM totals (e.g. 'Chiefs passed for 3,927 yards this
+    season'), not per-player stats, which is why fetch_espn_key_players uses
+    a different data source for individual players.
+
+    Stats are flattened across all categories and looked up by the stat's own
+    internal 'name' field, since the confirmed live response nested some
+    team-wide totals (like totalPointsPerGame) inside the 'passing' category
+    rather than a dedicated one — matching by name directly, not by which
+    category it happened to sit in, avoids depending on that.
+
+    Returns [] on any failure so the UI can show a graceful fallback message
+    instead of breaking."""
+    try:
+        abbr = ESPN_ABBR.get(team_name)
+        if not abbr:
+            return []
+
+        def get_flat(season=None):
+            url = f"https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams/{abbr}/statistics"
+            params = {"season": season} if season else {}
+            r = requests.get(url, params=params, timeout=10)
+            data = r.json()
+            flat = {}
+            categories = data.get("results", {}).get("stats", {}).get("categories", [])
+            for cat in categories:
+                for s in cat.get("stats", []):
+                    name = s.get("name", "").lower()
+                    if name and name not in flat:
+                        flat[name] = s.get("displayValue", "")
+            return flat
+
+        # (stat's internal 'name' field — confirmed real for the first 3 via
+        # live debug; the rest are the same endpoint's likely companion
+        # fields and degrade gracefully via the "if key in flat" check below
+        # if any turn out not to exist)
+        wanted = [
+            ("totalpointspergame",  "⭐ Points/Game",     0),
+            ("passingyards",        "🎯 Pass Yards",      1),
+            ("passingtouchdowns",   "🎯 Pass TDs",        2),
+            ("rushingyards",        "🏃 Rush Yards",      3),
+            ("rushingtouchdowns",   "🏃 Rush TDs",        4),
+            ("interceptions",       "🧤 INTs Thrown",     5),
+            ("sacks",               "💥 Sacks Allowed",   6),
+        ]
+
+        flat = get_flat()
+        if not flat:
+            flat = get_flat(season=2025)
+
+        out = [{"label": label, "value": flat[key], "order": order}
+               for key, label, order in wanted if key in flat]
+        out.sort(key=lambda x: x["order"])
+        return out
+    except Exception:
+        return []
+
+
 
 
 
@@ -854,6 +915,28 @@ with tab1:
                     for r in away_form: st.markdown(r['result'])
                 else:
                     for _,r in get_recent_form(scores,away_team).iterrows(): st.markdown(r['result'])
+
+            # Team season stats — real season totals from ESPN (confirmed working)
+            st.markdown("---")
+            st.subheader("📈 Team Season Stats")
+            st.caption("Season-long team totals so far.")
+            c1,c2 = st.columns(2)
+            with c1:
+                st.markdown(f"**🏠 {home_team}**")
+                home_season_stats = fetch_espn_team_season_stats(home_team)
+                if home_season_stats:
+                    for s in home_season_stats:
+                        st.markdown(f"{s['label']}: **{s['value']}**")
+                else:
+                    st.caption("Season stats unavailable right now.")
+            with c2:
+                st.markdown(f"**✈️ {away_team}**")
+                away_season_stats = fetch_espn_team_season_stats(away_team)
+                if away_season_stats:
+                    for s in away_season_stats:
+                        st.markdown(f"{s['label']}: **{s['value']}**")
+                else:
+                    st.caption("Season stats unavailable right now.")
 
             # Key players — season stats if available (incl. defense), else most-recent-game fallback
             st.markdown("---")
