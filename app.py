@@ -236,29 +236,134 @@ def fetch_espn_scoreboard():
     except Exception as ex:
         return [], None, str(ex)
 
+# ── Shared ESPN team abbreviation map ────────
+ESPN_ABBR = {
+    'Arizona Cardinals':'ari','Atlanta Falcons':'atl','Baltimore Ravens':'bal',
+    'Buffalo Bills':'buf','Carolina Panthers':'car','Chicago Bears':'chi',
+    'Cincinnati Bengals':'cin','Cleveland Browns':'cle','Dallas Cowboys':'dal',
+    'Denver Broncos':'den','Detroit Lions':'det','Green Bay Packers':'gb',
+    'Houston Texans':'hou','Indianapolis Colts':'ind','Jacksonville Jaguars':'jax',
+    'Kansas City Chiefs':'kc','Las Vegas Raiders':'lv','Los Angeles Chargers':'lac',
+    'Los Angeles Rams':'lar','Miami Dolphins':'mia','Minnesota Vikings':'min',
+    'New England Patriots':'ne','New Orleans Saints':'no','New York Giants':'nyg',
+    'New York Jets':'nyj','Philadelphia Eagles':'phi','Pittsburgh Steelers':'pit',
+    'San Francisco 49ers':'sf','Seattle Seahawks':'sea','Tampa Bay Buccaneers':'tb',
+    'Tennessee Titans':'ten','Washington Commanders':'wsh',
+}
+
 @st.cache_data(ttl=3600)
 def fetch_espn_team_stats(team_name):
     try:
-        abbr_map = {
-            'Arizona Cardinals':'ari','Atlanta Falcons':'atl','Baltimore Ravens':'bal',
-            'Buffalo Bills':'buf','Carolina Panthers':'car','Chicago Bears':'chi',
-            'Cincinnati Bengals':'cin','Cleveland Browns':'cle','Dallas Cowboys':'dal',
-            'Denver Broncos':'den','Detroit Lions':'det','Green Bay Packers':'gb',
-            'Houston Texans':'hou','Indianapolis Colts':'ind','Jacksonville Jaguars':'jax',
-            'Kansas City Chiefs':'kc','Las Vegas Raiders':'lv','Los Angeles Chargers':'lac',
-            'Los Angeles Rams':'lar','Miami Dolphins':'mia','Minnesota Vikings':'min',
-            'New England Patriots':'ne','New Orleans Saints':'no','New York Giants':'nyg',
-            'New York Jets':'nyj','Philadelphia Eagles':'phi','Pittsburgh Steelers':'pit',
-            'San Francisco 49ers':'sf','Seattle Seahawks':'sea','Tampa Bay Buccaneers':'tb',
-            'Tennessee Titans':'ten','Washington Commanders':'wsh',
-        }
-        abbr = abbr_map.get(team_name)
+        abbr = ESPN_ABBR.get(team_name)
         if not abbr: return {}
         url = f"https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams/{abbr}"
         r = requests.get(url, timeout=10)
         return r.json().get("team", {})
     except:
         return {}
+
+@st.cache_data(ttl=3600)
+def fetch_espn_recent_form(team_name, n=5):
+    """Live 'last N completed games' for a team, pulled from ESPN's team schedule
+    endpoint. Returns None on any failure so callers can fall back to the
+    static Kaggle-data version instead of showing nothing."""
+    try:
+        abbr = ESPN_ABBR.get(team_name)
+        if not abbr:
+            return None
+
+        def get_events(season=None):
+            url = f"https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams/{abbr}/schedule"
+            params = {"season": season} if season else {}
+            r = requests.get(url, params=params, timeout=10)
+            return r.json().get("events", [])
+
+        def completed_events(events):
+            out = []
+            for e in events:
+                comp = e.get("competitions", [{}])[0]
+                if comp.get("status", {}).get("type", {}).get("completed"):
+                    out.append(e)
+            return out
+
+        events = completed_events(get_events())
+        if not events:
+            # Offseason fallback: current-season schedule has no completed
+            # games yet, so pull the most recently finished season instead.
+            events = completed_events(get_events(season=2025))
+        if not events:
+            return None
+
+        results = []
+        for e in events:
+            comp = e["competitions"][0]
+            competitors = comp.get("competitors", [])
+            if len(competitors) < 2:
+                continue
+            team_c = next((c for c in competitors
+                            if c.get("team", {}).get("abbreviation", "").lower() == abbr), None)
+            opp_c = next((c for c in competitors if c is not team_c), None)
+            if not team_c or not opp_c:
+                continue
+            try:
+                team_score = int(float(team_c.get("score", 0)))
+                opp_score = int(float(opp_c.get("score", 0)))
+            except (TypeError, ValueError):
+                continue
+            is_home = team_c.get("homeAway") == "home"
+            win = team_score > opp_score
+            opp_name = opp_c.get("team", {}).get("displayName", "Opponent")
+            vs_at = "vs" if is_home else "@"
+            result = (f"✅ W {team_score}-{opp_score} {vs_at} {opp_name}" if win
+                      else f"❌ L {team_score}-{opp_score} {vs_at} {opp_name}")
+            results.append({"date": e.get("date", ""), "result": result})
+
+        results.sort(key=lambda x: x["date"], reverse=True)
+        return results[:n] if results else None
+    except Exception:
+        return None
+
+@st.cache_data(ttl=3600)
+def fetch_espn_key_players(team_name):
+    """Live team statistical leaders (passing/rushing/receiving) pulled from
+    ESPN's team endpoint. Returns [] on any failure so the UI can show a
+    graceful fallback message instead of breaking."""
+    try:
+        abbr = ESPN_ABBR.get(team_name)
+        if not abbr:
+            return []
+        url = f"https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams/{abbr}"
+        r = requests.get(url, params={"enable": "leaders"}, timeout=10)
+        team = r.json().get("team", {})
+        leaders_raw = team.get("leaders", [])
+
+        wanted = {
+            "passingYards":   "🎯 Passing",
+            "rushingYards":   "🏃 Rushing",
+            "receivingYards": "🙌 Receiving",
+        }
+        out = []
+        for cat in leaders_raw:
+            name = cat.get("name", "")
+            if name not in wanted:
+                continue
+            lst = cat.get("leaders", [])
+            if not lst:
+                continue
+            top = lst[0]
+            athlete = top.get("athlete", {})
+            out.append({
+                "category": wanted[name],
+                "player": athlete.get("displayName", "Unknown"),
+                "position": athlete.get("position", {}).get("abbreviation", ""),
+                "stat": top.get("displayValue", ""),
+            })
+        # Keep a consistent order regardless of the order ESPN returns them in
+        order = {"🎯 Passing": 0, "🏃 Rushing": 1, "🙌 Receiving": 2}
+        out.sort(key=lambda x: order.get(x["category"], 99))
+        return out
+    except Exception:
+        return []
 
 # ── Model ────────────────────────────────────
 @st.cache_resource
@@ -584,16 +689,47 @@ with tab1:
             elif diff>=0.07: st.markdown(f'<span class="confidence-med">{conf}</span> — The model leans one way but it\'s not clear cut.', unsafe_allow_html=True)
             else: st.markdown(f'<span class="confidence-low">{conf}</span> — This is a very tight matchup. Could go either way.', unsafe_allow_html=True)
 
-            # Recent form
+            # Recent form — live from ESPN, falling back to historical CSV data if the API fails
             st.markdown("---")
             st.subheader("📅 Recent Form (Last 5 Games)")
             c1,c2=st.columns(2)
             with c1:
                 st.markdown(f"**🏠 {home_team}**")
-                for _,r in get_recent_form(scores,home_team).iterrows(): st.markdown(r['result'])
+                home_form = fetch_espn_recent_form(home_team)
+                if home_form:
+                    for r in home_form: st.markdown(r['result'])
+                else:
+                    for _,r in get_recent_form(scores,home_team).iterrows(): st.markdown(r['result'])
             with c2:
                 st.markdown(f"**✈️ {away_team}**")
-                for _,r in get_recent_form(scores,away_team).iterrows(): st.markdown(r['result'])
+                away_form = fetch_espn_recent_form(away_team)
+                if away_form:
+                    for r in away_form: st.markdown(r['result'])
+                else:
+                    for _,r in get_recent_form(scores,away_team).iterrows(): st.markdown(r['result'])
+
+            # Key players — live team statistical leaders from ESPN
+            st.markdown("---")
+            st.subheader("🌟 Key Players")
+            c1,c2 = st.columns(2)
+            with c1:
+                st.markdown(f"**🏠 {home_team}**")
+                home_players = fetch_espn_key_players(home_team)
+                if home_players:
+                    for p in home_players:
+                        pos = f" ({p['position']})" if p['position'] else ""
+                        st.markdown(f"{p['category']}: **{p['player']}**{pos} — {p['stat']}")
+                else:
+                    st.caption("Player stats unavailable right now.")
+            with c2:
+                st.markdown(f"**✈️ {away_team}**")
+                away_players = fetch_espn_key_players(away_team)
+                if away_players:
+                    for p in away_players:
+                        pos = f" ({p['position']})" if p['position'] else ""
+                        st.markdown(f"{p['category']}: **{p['player']}**{pos} — {p['stat']}")
+                else:
+                    st.caption("Player stats unavailable right now.")
 
             st.markdown("---")
             st.subheader("🥊 Your NFLNerd Pick")
