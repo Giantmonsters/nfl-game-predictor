@@ -336,7 +336,13 @@ def _fetch_espn_key_players_per_game(team_name, debug=False):
     passing/rushing/receiving only. This is the confirmed-working data source
     used directly by fetch_espn_key_players (a separate attempt at
     season-aggregate player stats was tried and confirmed not to exist in
-    ESPN's public API — see fetch_espn_key_players's docstring)."""
+    ESPN's public API — see fetch_espn_key_players's docstring).
+
+    Defensive player leaders (tackles/sacks) were also attempted here and
+    confirmed absent via live debugging across two different games — ESPN's
+    per-game 'leaders' block only ever contains offensive categories, so
+    defensive individual leaders genuinely aren't available from this data
+    source at any level (game or season)."""
     try:
         abbr = ESPN_ABBR.get(team_name)
         if not abbr:
@@ -356,12 +362,13 @@ def _fetch_espn_key_players_per_game(team_name, debug=False):
             completed.sort(key=lambda e: e.get("date", ""), reverse=True)
             return completed[0] if completed else None
 
+        # Confirmed via live debug (across two different games) that ESPN's
+        # per-game 'leaders' block only ever contains passing/rushing/
+        # receiving — no defensive categories exist in this data at all.
         wanted = [
             ("pass",    "🎯 Passing",       0),
             ("rush",    "🏃 Rushing",       1),
             ("receiv",  "🙌 Receiving",     2),
-            ("tackl",   "🛡️ Tackles",       3),
-            ("sack",    "💥 Sacks",         4),
         ]
 
         def parse(event):
@@ -485,8 +492,12 @@ def fetch_espn_team_season_stats(team_name, debug=False):
             return None
 
         # (category substring, [candidate exact stat names to try in order], label, order)
-        # First 7 confirmed via live debug (all under the 'passing'/'rushing' categories).
-        # Last 2 (defense) are best-guess candidates, not yet confirmed live.
+        # All 8 confirmed via live debug — the full category/stat list was
+        # inspected directly. Note: ESPN's public stats endpoint has no
+        # "yards allowed" field anywhere across any category (confirmed by
+        # listing every stat name in every category), so that stat isn't
+        # included here — it genuinely isn't available, not a naming guess
+        # that missed.
         wanted = [
             ("passing", ["totalpointspergame"],                       "⭐ Points/Game",     0),
             ("passing", ["passingyards"],                              "🎯 Pass Yards",      1),
@@ -496,8 +507,6 @@ def fetch_espn_team_season_stats(team_name, debug=False):
             ("passing", ["interceptions"],                             "🧤 INTs Thrown",     5),
             ("passing", ["sacks"],                                     "💥 Sacks Allowed",   6),
             ("defen",   ["sacks", "totalsacks", "defensivesacks"],     "🛡️ Sacks Made",      7),
-            ("defen",   ["yardsallowed", "totalyardsallowed", "yardsallowedpergame"],
-                                                                        "📉 Yards Allowed",   8),
         ]
 
         def parse(categories):
@@ -886,13 +895,6 @@ with tab1:
                 else:
                     st.caption("Season stats unavailable right now.")
 
-            home_labels = {s['label'] for s in home_season_stats}
-            if "📉 Yards Allowed" not in home_labels:
-                with st.expander("🛠️ Debug: find real 'Yards Allowed' field name"):
-                    st.caption("Lists every category and stat name ESPN actually returns, so the defensive field names can be corrected.")
-                    fetch_espn_team_season_stats.clear()
-                    fetch_espn_team_season_stats(home_team, debug=True)
-
             # Top performers from each team's most recent completed game
             st.markdown("---")
             st.subheader("🌟 Top Performers (Most Recent Game)")
@@ -916,13 +918,6 @@ with tab1:
                         st.markdown(f"{p['category']}: **{p['player']}**{pos} — {p['stat']}")
                 else:
                     st.caption("Player stats unavailable right now.")
-
-            home_player_cats = {p['category'] for p in home_players}
-            if "🛡️ Tackles" not in home_player_cats or "💥 Sacks" not in home_player_cats:
-                with st.expander("🛠️ Debug: check for Tackles/Sacks leader categories"):
-                    st.caption("Lists every 'leader' category ESPN returns for this game, to confirm whether a tackles/sacks leader exists at all.")
-                    _fetch_espn_key_players_per_game.clear()
-                    _fetch_espn_key_players_per_game(home_team, debug=True)
 
             st.markdown("---")
             st.subheader("🥊 Your NFLNerd Pick")
