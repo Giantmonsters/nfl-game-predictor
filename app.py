@@ -9,7 +9,7 @@ import plotly.graph_objects as go
 import numpy as np
 import requests
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # ── Page config ──────────────────────────────
 st.set_page_config(
@@ -279,12 +279,18 @@ def fetch_espn_scoreboard():
                 continue
             home = next((c for c in competitors if c.get("homeAway")=="home"), competitors[0])
             away = next((c for c in competitors if c.get("homeAway")=="away"), competitors[1])
-            status = e.get("status", {}).get("type", {}).get("description", "")
+            status_type = e.get("status", {}).get("type", {})
             games.append({
                 "home": home["team"]["displayName"],
                 "away": away["team"]["displayName"],
                 "date": e.get("date",""),
-                "status": status,
+                "status": status_type.get("description", ""),
+                # state: 'pre' (upcoming), 'in' (live), 'post' (final) —
+                # used to decide whether to show a prediction or a real score
+                "state": status_type.get("state", "pre"),
+                "status_detail": status_type.get("shortDetail", status_type.get("detail", "")),
+                "home_score": home.get("score"),
+                "away_score": away.get("score"),
                 "name": e.get("name",""),
             })
         return games, data.get("week", {}).get("number", current_week), None
@@ -1146,6 +1152,24 @@ with tab1:
 with tab2:
     st.markdown("### 📅 This Week's NFL Games")
 
+    def format_kickoff(iso_str):
+        """Format ESPN's UTC kickoff timestamp into a readable ET time.
+        Uses a fixed UTC-4 offset (EDT), which is correct for the September
+        portion of the season — would need adjusting for any games played
+        after the US reverts to EST in early November."""
+        if not iso_str:
+            return ""
+        for fmt in ("%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%MZ"):
+            try:
+                dt = datetime.strptime(iso_str, fmt)
+                break
+            except ValueError:
+                continue
+        else:
+            return ""
+        dt_et = dt - timedelta(hours=4)
+        return dt_et.strftime("%a, %b %-d — %-I:%M %p ET")
+
     games, week_num, err = fetch_espn_scoreboard()
 
     if err or not games:
@@ -1187,7 +1211,7 @@ with tab2:
                 predictions.append({**g,'home_mapped':home,'away_mapped':away,'hp':hp,'ap':ap,'conf':conf,'winner':winner})
 
         if predictions:
-            # Weekly highlights
+            # Weekly highlights — based on the full week, not the filter below
             most_confident = max(predictions, key=lambda x: abs(x['hp']-x['ap']))
             closest = min(predictions, key=lambda x: abs(x['hp']-x['ap']))
 
@@ -1206,32 +1230,81 @@ with tab2:
             st.markdown("---")
             st.markdown("#### 🏈 Game Predictions")
 
-            for g in predictions:
+            fc1, fc2 = st.columns(2)
+            with fc1:
+                team_filter = st.selectbox("Filter by team", ["All Teams"] + sorted(CURRENT_NFL_TEAMS), key="week_team_filter")
+            with fc2:
+                sort_option = st.selectbox("Sort by", ["Kickoff Time", "Model Confidence (High to Low)"], key="week_sort_option")
+
+            display_games = predictions
+            if team_filter != "All Teams":
+                display_games = [g for g in display_games if team_filter in (g['home_mapped'], g['away_mapped'])]
+            if sort_option == "Kickoff Time":
+                display_games = sorted(display_games, key=lambda x: x.get('date',''))
+            else:
+                display_games = sorted(display_games, key=lambda x: abs(x['hp']-x['ap']), reverse=True)
+
+            if not display_games:
+                st.info(f"No game found for {team_filter} this week — likely a bye week.")
+
+            for g in display_games:
                 diff = abs(g['hp']-g['ap'])
                 conf_color = "#00C853" if diff>=0.15 else ("#FFB300" if diff>=0.07 else "#D50A0A")
                 home_logo = ESPN_LOGOS.get(g['home_mapped'],'')
                 away_logo = ESPN_LOGOS.get(g['away_mapped'],'')
                 game_key = f"{g['home_mapped']}_{g['away_mapped']}_{g.get('date','')}".replace(" ","_")
+                kickoff_str = format_kickoff(g.get('date',''))
+                state = g.get('state', 'pre')
 
                 with st.container():
                     st.markdown(f'<div class="match-card">', unsafe_allow_html=True)
+
+                    if kickoff_str:
+                        live_badge = ""
+                        if state == "in":
+                            live_badge = f" &nbsp;·&nbsp; <span style='color:#D50A0A;font-weight:700;'>🔴 LIVE — {g.get('status_detail','')}</span>"
+                        elif state == "post":
+                            live_badge = " &nbsp;·&nbsp; <span style='color:#888;font-weight:700;'>✅ FINAL</span>"
+                        st.markdown(f"<div style='text-align:center;color:#888;font-size:13px;margin-bottom:8px;'>{kickoff_str}{live_badge}</div>", unsafe_allow_html=True)
+
                     c1,c2,c3,c4,c5 = st.columns([2,1,1,1,2])
+
+                    # Once a game is live or final, show the real score instead of the
+                    # predicted probability — the prediction is no longer the interesting number.
+                    show_live_score = state in ("in", "post") and g.get('home_score') is not None and g.get('away_score') is not None
+
                     with c1:
                         if home_logo: st.image(home_logo, width=50)
                         st.markdown(f"**{g['home_mapped']}**")
-                        st.markdown(f"🏠 Home • {g['hp']:.1%}")
+                        if show_live_score:
+                            st.markdown(f"🏠 Home • **{g['home_score']}**")
+                        else:
+                            st.markdown(f"🏠 Home • {g['hp']:.1%}")
                     with c2:
                         st.markdown("<div style='text-align:center;padding-top:20px;color:#666;font-size:20px;'>VS</div>", unsafe_allow_html=True)
                     with c3:
-                        winner_label = "🏠 HOME WIN" if g['winner']==g['home_mapped'] else "✈️ AWAY WIN"
-                        st.markdown(f"<div style='text-align:center;padding-top:15px;'><span class='winner-badge'>{winner_label}</span></div>", unsafe_allow_html=True)
-                        st.markdown(f"<div style='text-align:center;color:{conf_color};font-size:12px;margin-top:6px;'>{g['conf']}</div>", unsafe_allow_html=True)
+                        if show_live_score:
+                            actual_winner = g['home_mapped'] if float(g['home_score']) > float(g['away_score']) else (
+                                            g['away_mapped'] if float(g['away_score']) > float(g['home_score']) else None)
+                            if actual_winner:
+                                winner_label = "🏠 HOME WIN" if actual_winner==g['home_mapped'] else "✈️ AWAY WIN"
+                                st.markdown(f"<div style='text-align:center;padding-top:15px;'><span class='winner-badge'>{winner_label}</span></div>", unsafe_allow_html=True)
+                            else:
+                                st.markdown("<div style='text-align:center;padding-top:15px;color:#888;'>TIED</div>", unsafe_allow_html=True)
+                            st.markdown(f"<div style='text-align:center;color:#888;font-size:11px;margin-top:6px;'>Predicted: {g['winner']} ({max(g['hp'],g['ap']):.0%})</div>", unsafe_allow_html=True)
+                        else:
+                            winner_label = "🏠 HOME WIN" if g['winner']==g['home_mapped'] else "✈️ AWAY WIN"
+                            st.markdown(f"<div style='text-align:center;padding-top:15px;'><span class='winner-badge'>{winner_label}</span></div>", unsafe_allow_html=True)
+                            st.markdown(f"<div style='text-align:center;color:{conf_color};font-size:12px;margin-top:6px;'>{g['conf']}</div>", unsafe_allow_html=True)
                     with c4:
                         st.markdown("<div style='text-align:center;padding-top:20px;color:#666;font-size:20px;'>VS</div>", unsafe_allow_html=True)
                     with c5:
                         if away_logo: st.image(away_logo, width=50)
                         st.markdown(f"**{g['away_mapped']}**")
-                        st.markdown(f"✈️ Away • {g['ap']:.1%}")
+                        if show_live_score:
+                            st.markdown(f"✈️ Away • **{g['away_score']}**")
+                        else:
+                            st.markdown(f"✈️ Away • {g['ap']:.1%}")
 
                     with st.expander("🥊 Make Your Own Pick"):
                         pc1, pc2 = st.columns(2)
