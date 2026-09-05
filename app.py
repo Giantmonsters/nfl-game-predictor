@@ -324,25 +324,6 @@ def fetch_espn_team_stats(team_name):
         return {}
 
 @st.cache_data(ttl=3600)
-def fetch_espn_team_record(team_name):
-    """Team's current overall W-L record (e.g. '2-1'), pulled from the
-    teams/{abbr} endpoint (via fetch_espn_team_stats, already confirmed
-    working elsewhere in the app). Confirmed via live debugging that this
-    endpoint's team object includes a 'record' field shaped as
-    {'items': [{'type': 'total', 'summary': '2-1', ...}]} — unlike the
-    league-wide standings endpoint (used for Team Standing), which only
-    returned a placeholder link with no real data. Returns None on any
-    failure, so the UI can simply omit the record rather than show
-    something wrong."""
-    try:
-        team = fetch_espn_team_stats(team_name)
-        record_items = team.get("record", {}).get("items", [])
-        total = next((r for r in record_items if r.get("type") == "total"), None)
-        return total.get("summary") if total else None
-    except Exception:
-        return None
-
-@st.cache_data(ttl=3600)
 def fetch_espn_recent_form(team_name, n=5):
     """Live 'last N completed games' for a team, pulled from ESPN's team schedule
     endpoint. Returns None on any failure so callers can fall back to the
@@ -1306,12 +1287,9 @@ with tab2:
                     # predicted probability — the prediction is no longer the interesting number.
                     show_live_score = state in ("in", "post") and g.get('home_score') is not None and g.get('away_score') is not None
 
-                    home_record = fetch_espn_team_record(g['home_mapped'])
-                    away_record = fetch_espn_team_record(g['away_mapped'])
-
                     with c1:
                         if home_logo: st.image(home_logo, width=50)
-                        st.markdown(f"**{g['home_mapped']}**" + (f" ({home_record})" if home_record else ""))
+                        st.markdown(f"**{g['home_mapped']}**")
                         if show_live_score:
                             st.markdown(f"🏠 Home • **{g['home_score']}**")
                         else:
@@ -1336,7 +1314,7 @@ with tab2:
                         st.markdown("<div style='text-align:center;padding-top:20px;color:#666;font-size:20px;'>VS</div>", unsafe_allow_html=True)
                     with c5:
                         if away_logo: st.image(away_logo, width=50)
-                        st.markdown(f"**{g['away_mapped']}**" + (f" ({away_record})" if away_record else ""))
+                        st.markdown(f"**{g['away_mapped']}**")
                         if show_live_score:
                             st.markdown(f"✈️ Away • **{g['away_score']}**")
                         else:
