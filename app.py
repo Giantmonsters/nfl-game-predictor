@@ -248,26 +248,53 @@ FOX_RANKINGS = [
     {"rank":32, "team":"Arizona Cardinals",      "prev":32, "tier":"🔄 Rebuilding", "comment":"Scouting director suspended for leaking draft info. A rough offseason off the field too."},
 ]
 
+# ── Verified real Week 1 2026 schedule ──
+# ESPN's live scoreboard endpoint kept returning incorrect matchups no matter
+# which query parameters were tried (seasontype/week/dates), so this list —
+# confirmed against the real NFL Week 1 schedule and independently
+# cross-checked against a live ESPN game date seen elsewhere (Browns @
+# Jaguars, Sept 13 17:00 UTC matched exactly) — is used directly instead of
+# trusting the live scoreboard call for Week 1. Update this manually once
+# Week 1 completes and Week 2 needs to take over.
+WEEK1_2026_SCHEDULE = [
+    {"away": "New England Patriots",   "home": "Seattle Seahawks",      "date": "2026-09-11T00:20Z", "name": "Patriots at Seahawks"},
+    {"away": "San Francisco 49ers",    "home": "Los Angeles Rams",      "date": "2026-09-11T00:35Z", "name": "49ers at Rams"},
+    {"away": "Chicago Bears",          "home": "Carolina Panthers",     "date": "2026-09-13T17:00Z", "name": "Bears at Panthers"},
+    {"away": "Tampa Bay Buccaneers",   "home": "Cincinnati Bengals",    "date": "2026-09-13T17:00Z", "name": "Buccaneers at Bengals"},
+    {"away": "New Orleans Saints",     "home": "Detroit Lions",         "date": "2026-09-13T17:00Z", "name": "Saints at Lions"},
+    {"away": "Buffalo Bills",          "home": "Houston Texans",        "date": "2026-09-13T17:00Z", "name": "Bills at Texans"},
+    {"away": "Baltimore Ravens",       "home": "Indianapolis Colts",    "date": "2026-09-13T17:00Z", "name": "Ravens at Colts"},
+    {"away": "Cleveland Browns",       "home": "Jacksonville Jaguars",  "date": "2026-09-13T17:00Z", "name": "Browns at Jaguars"},
+    {"away": "Atlanta Falcons",        "home": "Pittsburgh Steelers",   "date": "2026-09-13T17:00Z", "name": "Falcons at Steelers"},
+    {"away": "New York Jets",          "home": "Tennessee Titans",      "date": "2026-09-13T17:00Z", "name": "Jets at Titans"},
+    {"away": "Arizona Cardinals",      "home": "Los Angeles Chargers",  "date": "2026-09-13T20:25Z", "name": "Cardinals at Chargers"},
+    {"away": "Miami Dolphins",         "home": "Las Vegas Raiders",     "date": "2026-09-13T20:25Z", "name": "Dolphins at Raiders"},
+    {"away": "Green Bay Packers",      "home": "Minnesota Vikings",     "date": "2026-09-13T20:25Z", "name": "Packers at Vikings"},
+    {"away": "Washington Commanders",  "home": "Philadelphia Eagles",   "date": "2026-09-13T20:25Z", "name": "Commanders at Eagles"},
+    {"away": "Dallas Cowboys",         "home": "New York Giants",       "date": "2026-09-14T00:20Z", "name": "Cowboys at Giants"},
+    {"away": "Denver Broncos",         "home": "Kansas City Chiefs",    "date": "2026-09-15T00:15Z", "name": "Broncos at Chiefs"},
+]
+
 # ── ESPN API helpers ─────────────────────────
 @st.cache_data(ttl=3600)
 def fetch_espn_scoreboard():
     try:
-        url = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
-        # Without explicit params, ESPN's scoreboard defaults to "today's"
-        # games, which — since the 2026 regular season hasn't started —
-        # returned stale/incorrect matchups (the same root cause fixed
-        # elsewhere for Recent Form and Top Performers: preseason/off-period
-        # data leaking in). seasontype=2 forces regular season only.
-        #
-        # week is computed from today's date rather than hardcoded, so this
-        # keeps showing the correct current week automatically as the season
-        # progresses, instead of needing a manual code edit every week.
         # Week 1 games start Sun 2026-09-13; NFL weeks run Tue-Mon, so the
         # Tuesday two days before (2026-09-08) is used as the week-1 anchor.
         season_week1_start = datetime(2026, 9, 8)
         days_since = (datetime.now() - season_week1_start).days
         current_week = max(1, min(18, (days_since // 7) + 1))
 
+        # ESPN's live scoreboard endpoint returned incorrect matchups for
+        # Week 1 no matter which query parameters were tried (seasontype,
+        # week, dates) — confirmed against the real Week 1 schedule. Rather
+        # than keep guessing at parameters, Week 1 uses the verified
+        # hardcoded schedule directly. Later weeks fall back to the live API
+        # (untested — may need the same fix once Week 2 arrives).
+        if current_week == 1:
+            return WEEK1_2026_SCHEDULE, 1, None
+
+        url = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
         params = {"seasontype": 2, "week": current_week, "dates": 2026}
         r = requests.get(url, params=params, timeout=10)
         data = r.json()
