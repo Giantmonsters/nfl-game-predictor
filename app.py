@@ -274,7 +274,14 @@ def fetch_espn_recent_form(team_name, n=5):
 
         def get_events(season=None):
             url = f"https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams/{abbr}/schedule"
-            params = {"season": season} if season else {}
+            # seasontype=2 = regular season only. Without this, ESPN's default
+            # "current season" schedule includes preseason games too — since
+            # the 2026 preseason has already finished but the 2026 regular
+            # season hasn't started yet, that meant "most recent completed
+            # game" was pulling preseason backups instead of real games.
+            params = {"seasontype": 2}
+            if season:
+                params["season"] = season
             r = requests.get(url, params=params, timeout=10)
             return r.json().get("events", [])
 
@@ -325,19 +332,22 @@ def fetch_espn_recent_form(team_name, n=5):
 
 @st.cache_data(ttl=3600)
 def fetch_espn_key_players(team_name, debug=False):
-    """Top performers for a team's most recent completed game — offense
-    (passing/rushing/receiving) and defense (tackles/sacks/interceptions) —
-    pulled from ESPN's team schedule endpoint (the same one Recent Form
-    already uses successfully).
+    """Top performers for a team's most recent completed REGULAR SEASON game —
+    passing/rushing/receiving only — pulled from ESPN's team schedule endpoint
+    (the same one Recent Form already uses successfully).
 
-    (Two earlier approaches were tried and failed on live debugging:
-    teams/{abbr}?enable=leaders has no player-leader data at all, and
-    site.api.espn.com/nfl/leaders 404s outright. Rather than keep guessing at
-    undocumented endpoints, this reuses the schedule data we already know
-    works, which includes each competitor's own game 'leaders' — the same
-    structure that powers the 'Team Leaders' box on ESPN's live gamecast
-    pages. This means the stats shown are from the team's most recent
-    completed game, not a season-long aggregate.)
+    (Confirmed via live debugging: ESPN's actual category names here are
+    'passingLeader' / 'rushingLeader' / 'receivingLeader', not the
+    '...Yards'-style names first guessed. Also confirmed this data source has
+    NO defensive categories at all — no tackles/sacks/INTs leader is present
+    in a team's game-level leaders block, so those were dropped rather than
+    silently showing nothing forever.
+
+    Also fixed: without seasontype=2, ESPN's default schedule call includes
+    completed PRESEASON games, which — since the 2026 preseason had already
+    finished while the 2026 regular season hadn't started — meant this was
+    showing preseason backups as a team's "top performers" instead of real
+    starters. Filtering to seasontype=2 (regular season only) fixes that.)
 
     Returns [] on any failure so the UI can show a graceful fallback message
     instead of breaking."""
@@ -348,7 +358,9 @@ def fetch_espn_key_players(team_name, debug=False):
 
         def get_events(season=None):
             url = f"https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams/{abbr}/schedule"
-            params = {"season": season} if season else {}
+            params = {"seasontype": 2}  # regular season only — see docstring
+            if season:
+                params["season"] = season
             r = requests.get(url, params=params, timeout=10)
             return r.json().get("events", [])
 
@@ -358,13 +370,11 @@ def fetch_espn_key_players(team_name, debug=False):
             completed.sort(key=lambda e: e.get("date", ""), reverse=True)
             return completed[0] if completed else None
 
+        # (substring to match against ESPN's actual category name, display label, sort order)
         wanted = [
-            ("passingyards",   "🎯 Passing",   0),
-            ("rushingyards",   "🏃 Rushing",   1),
-            ("receivingyards", "🙌 Receiving", 2),
-            ("tackles",        "🛡️ Tackles",   3),
-            ("sacks",          "💥 Sacks",     4),
-            ("interceptions",  "🧤 INTs",      5),
+            ("pass",    "🎯 Passing",   0),
+            ("rush",    "🏃 Rushing",   1),
+            ("receiv",  "🙌 Receiving", 2),
         ]
 
         def parse(event):
@@ -407,8 +417,8 @@ def fetch_espn_key_players(team_name, debug=False):
         event = most_recent_completed(events)
         out = parse(event)
         if not out:
-            # Offseason fallback: no completed games this season yet, so pull
-            # from the most recently finished season instead.
+            # Offseason fallback: no completed regular-season games this
+            # season yet, so pull from the most recently finished season instead.
             events = get_events(season=2025)
             event = most_recent_completed(events)
             out = parse(event)
