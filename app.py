@@ -1177,7 +1177,13 @@ with tab2:
         st.markdown("In the meantime, use the **🔮 Predict** tab to predict any hypothetical matchup.")
     else:
         week_label = f"NFL Week {week_num}" if week_num else "This Week's Games"
-        st.subheader(f"📅 {week_label}")
+        hc1, hc2 = st.columns([4,1])
+        with hc1:
+            st.subheader(f"📅 {week_label}")
+        with hc2:
+            if st.button("🔄 Refresh Scores", use_container_width=True):
+                fetch_espn_scoreboard.clear()
+                st.rerun()
 
         # Map ESPN team names to our model's team names
         espn_to_model = {v.split('/')[-1].replace('.png',''):k for k,v in ESPN_LOGOS.items()}
@@ -1210,6 +1216,14 @@ with tab2:
                 hp,ap,conf,winner,_,_,_,_,_,_ = predict_game(predictor_model,predictor_scores,predictor_get_team_stats,home,away)
                 predictions.append({**g,'home_mapped':home,'away_mapped':away,'hp':hp,'ap':ap,'conf':conf,'winner':winner})
 
+        # Bye week note — any current team not appearing in this week's games.
+        # Week 1 has no byes (all 32 teams play), so this naturally stays
+        # silent until byes actually start later in the season.
+        teams_playing = {p['home_mapped'] for p in predictions} | {p['away_mapped'] for p in predictions}
+        bye_teams = sorted(set(CURRENT_NFL_TEAMS) - teams_playing)
+        if bye_teams:
+            st.info(f"💤 **On a bye this week:** {', '.join(bye_teams)}")
+
         if predictions:
             # Weekly highlights — based on the full week, not the filter below
             most_confident = max(predictions, key=lambda x: abs(x['hp']-x['ap']))
@@ -1225,7 +1239,7 @@ with tab2:
             with c2:
                 st.markdown("**🔴 Closest Game**")
                 st.markdown(f"{closest['home_mapped']} vs {closest['away_mapped']}")
-                st.markdown(f"{closest['hp']:.1%} vs {closest['ap']:.1%} — genuine coin flip")
+                st.markdown(f"{closest['hp']:.1%} vs {closest['ap']:.1%}")
 
             st.markdown("---")
             st.markdown("#### 🏈 Game Predictions")
