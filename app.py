@@ -1186,6 +1186,21 @@ with tab2:
         # Map ESPN team names to our model's team names
         espn_to_model = {v.split('/')[-1].replace('.png',''):k for k,v in ESPN_LOGOS.items()}
         def match_team(espn_name):
+            # Exact match first — this is what our hardcoded WEEK1_2026_SCHEDULE
+            # always provides, since it already uses the exact same team name
+            # strings as CURRENT_NFL_TEAMS. Checking this before the fuzzy
+            # substring fallback below is essential: that fallback matches on
+            # individual WORDS, and several team names share a common word
+            # (e.g. "New England Patriots"/"New Orleans Saints"/"New York
+            # Giants"/"New York Jets" all contain "New"; "Los Angeles Rams"/
+            # "Los Angeles Chargers" both contain "Los"). Without checking
+            # for an exact match first, whichever of those teams happened to
+            # come first alphabetically in CURRENT_NFL_TEAMS would incorrectly
+            # win the match every time — which is exactly what was happening
+            # (Patriots and Chargers wrongly appearing in place of Saints/
+            # Giants/Jets/Rams).
+            if espn_name in CURRENT_NFL_TEAMS:
+                return espn_name
             for model_name in CURRENT_NFL_TEAMS:
                 if any(part.lower() in espn_name.lower() for part in model_name.split()):
                     return model_name
