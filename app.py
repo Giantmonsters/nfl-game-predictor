@@ -1174,6 +1174,44 @@ with tab1:
 with tab2:
     st.markdown("### 📅 This Week's NFL Games")
 
+    with st.expander("🛠️ Debug: test ESPN scoreboard parameters (temporary)"):
+        st.caption("Tests several parameter combinations against ESPN's live scoreboard for Week 1 (a known-correct 16-game answer, from WEEK1_2026_SCHEDULE) to find which params actually return the right games — so the same approach can be trusted for Week 2 onward.")
+        known_week1_pairs = {(g['away'], g['home']) for g in WEEK1_2026_SCHEDULE}
+
+        def _test_scoreboard(label, params):
+            try:
+                url = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
+                r = requests.get(url, params=params, timeout=10)
+                data = r.json()
+                events = data.get("events", [])
+                pairs = []
+                for e in events:
+                    comp = e.get("competitions", [{}])[0]
+                    competitors = comp.get("competitors", [])
+                    if len(competitors) < 2:
+                        continue
+                    home = next((c for c in competitors if c.get("homeAway")=="home"), competitors[0])
+                    away = next((c for c in competitors if c.get("homeAway")=="away"), competitors[1])
+                    pairs.append((away["team"]["displayName"], home["team"]["displayName"]))
+                correct = sum(1 for p in pairs if p in known_week1_pairs)
+                st.markdown(f"**{label}** — params: `{params}` — HTTP {r.status_code} — "
+                            f"{len(pairs)} games returned, {correct}/{len(known_week1_pairs)} match known Week 1")
+                st.json({"week_meta": data.get("week"), "games": pairs})
+            except Exception as ex:
+                st.markdown(f"**{label}** — FAILED: {ex}")
+
+        if st.button("Run parameter tests", key="scoreboard_debug_run"):
+            _test_scoreboard("A: seasontype+week+dates=year",
+                              {"seasontype": 2, "week": 1, "dates": 2026})
+            _test_scoreboard("B: seasontype+week only (no dates)",
+                              {"seasontype": 2, "week": 1})
+            _test_scoreboard("C: dates=explicit Sunday range only",
+                              {"dates": "20260913-20260914"})
+            _test_scoreboard("D: dates=explicit Sunday range + seasontype",
+                              {"seasontype": 2, "dates": "20260913-20260914"})
+            _test_scoreboard("E: no params at all (current default)",
+                              {})
+
     games, week_num, err = fetch_espn_scoreboard()
 
     if err or not games:
