@@ -248,51 +248,23 @@ FOX_RANKINGS = [
     {"rank":32, "team":"Arizona Cardinals",      "prev":32, "tier":"🔄 Rebuilding", "comment":"Scouting director suspended for leaking draft info. A rough offseason off the field too."},
 ]
 
-# ── Verified real Week 1 2026 schedule ──
-# ESPN's live scoreboard endpoint kept returning incorrect matchups no matter
-# which query parameters were tried (seasontype/week/dates), so this list —
-# confirmed against the real NFL Week 1 schedule and independently
-# cross-checked against a live ESPN game date seen elsewhere (Browns @
-# Jaguars, Sept 13 17:00 UTC matched exactly) — is used directly instead of
-# trusting the live scoreboard call for Week 1. Update this manually once
-# Week 1 completes and Week 2 needs to take over.
-WEEK1_2026_SCHEDULE = [
-    {"away": "New England Patriots",   "home": "Seattle Seahawks",      "date": "2026-09-11T00:20Z", "name": "Patriots at Seahawks"},
-    {"away": "San Francisco 49ers",    "home": "Los Angeles Rams",      "date": "2026-09-11T00:35Z", "name": "49ers at Rams"},
-    {"away": "Chicago Bears",          "home": "Carolina Panthers",     "date": "2026-09-13T17:00Z", "name": "Bears at Panthers"},
-    {"away": "Tampa Bay Buccaneers",   "home": "Cincinnati Bengals",    "date": "2026-09-13T17:00Z", "name": "Buccaneers at Bengals"},
-    {"away": "New Orleans Saints",     "home": "Detroit Lions",         "date": "2026-09-13T17:00Z", "name": "Saints at Lions"},
-    {"away": "Buffalo Bills",          "home": "Houston Texans",        "date": "2026-09-13T17:00Z", "name": "Bills at Texans"},
-    {"away": "Baltimore Ravens",       "home": "Indianapolis Colts",    "date": "2026-09-13T17:00Z", "name": "Ravens at Colts"},
-    {"away": "Cleveland Browns",       "home": "Jacksonville Jaguars",  "date": "2026-09-13T17:00Z", "name": "Browns at Jaguars"},
-    {"away": "Atlanta Falcons",        "home": "Pittsburgh Steelers",   "date": "2026-09-13T17:00Z", "name": "Falcons at Steelers"},
-    {"away": "New York Jets",          "home": "Tennessee Titans",      "date": "2026-09-13T17:00Z", "name": "Jets at Titans"},
-    {"away": "Arizona Cardinals",      "home": "Los Angeles Chargers",  "date": "2026-09-13T20:25Z", "name": "Cardinals at Chargers"},
-    {"away": "Miami Dolphins",         "home": "Las Vegas Raiders",     "date": "2026-09-13T20:25Z", "name": "Dolphins at Raiders"},
-    {"away": "Green Bay Packers",      "home": "Minnesota Vikings",     "date": "2026-09-13T20:25Z", "name": "Packers at Vikings"},
-    {"away": "Washington Commanders",  "home": "Philadelphia Eagles",   "date": "2026-09-13T20:25Z", "name": "Commanders at Eagles"},
-    {"away": "Dallas Cowboys",         "home": "New York Giants",       "date": "2026-09-14T00:20Z", "name": "Cowboys at Giants"},
-    {"away": "Denver Broncos",         "home": "Kansas City Chiefs",    "date": "2026-09-15T00:15Z", "name": "Broncos at Chiefs"},
-]
-
 # ── ESPN API helpers ─────────────────────────
 @st.cache_data(ttl=3600)
 def fetch_espn_scoreboard():
+    """Live NFL scoreboard for the current week. Confirmed via live
+    debugging (2026-09) that ESPN's scoreboard endpoint returns correct
+    matchups for Week 1 with these exact parameters (16/16 games matched
+    the real schedule) — the earlier appearance of wrong teams was actually
+    a separate bug in match_team()'s fuzzy name matching, not bad data from
+    this endpoint, so there's no need to special-case or hardcode anything
+    here."""
     try:
         # Week 1 games start Sun 2026-09-13; NFL weeks run Tue-Mon, so the
         # Tuesday two days before (2026-09-08) is used as the week-1 anchor.
+        # seasontype=2 = regular season only.
         season_week1_start = datetime(2026, 9, 8)
         days_since = (datetime.now() - season_week1_start).days
         current_week = max(1, min(18, (days_since // 7) + 1))
-
-        # ESPN's live scoreboard endpoint returned incorrect matchups for
-        # Week 1 no matter which query parameters were tried (seasontype,
-        # week, dates) — confirmed against the real Week 1 schedule. Rather
-        # than keep guessing at parameters, Week 1 uses the verified
-        # hardcoded schedule directly. Later weeks fall back to the live API
-        # (untested — may need the same fix once Week 2 arrives).
-        if current_week == 1:
-            return WEEK1_2026_SCHEDULE, 1, None
 
         url = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
         params = {"seasontype": 2, "week": current_week, "dates": 2026}
@@ -1174,44 +1146,6 @@ with tab1:
 with tab2:
     st.markdown("### 📅 This Week's NFL Games")
 
-    with st.expander("🛠️ Debug: test ESPN scoreboard parameters (temporary)"):
-        st.caption("Tests several parameter combinations against ESPN's live scoreboard for Week 1 (a known-correct 16-game answer, from WEEK1_2026_SCHEDULE) to find which params actually return the right games — so the same approach can be trusted for Week 2 onward.")
-        known_week1_pairs = {(g['away'], g['home']) for g in WEEK1_2026_SCHEDULE}
-
-        def _test_scoreboard(label, params):
-            try:
-                url = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
-                r = requests.get(url, params=params, timeout=10)
-                data = r.json()
-                events = data.get("events", [])
-                pairs = []
-                for e in events:
-                    comp = e.get("competitions", [{}])[0]
-                    competitors = comp.get("competitors", [])
-                    if len(competitors) < 2:
-                        continue
-                    home = next((c for c in competitors if c.get("homeAway")=="home"), competitors[0])
-                    away = next((c for c in competitors if c.get("homeAway")=="away"), competitors[1])
-                    pairs.append((away["team"]["displayName"], home["team"]["displayName"]))
-                correct = sum(1 for p in pairs if p in known_week1_pairs)
-                st.markdown(f"**{label}** — params: `{params}` — HTTP {r.status_code} — "
-                            f"{len(pairs)} games returned, {correct}/{len(known_week1_pairs)} match known Week 1")
-                st.json({"week_meta": data.get("week"), "games": pairs})
-            except Exception as ex:
-                st.markdown(f"**{label}** — FAILED: {ex}")
-
-        if st.button("Run parameter tests", key="scoreboard_debug_run"):
-            _test_scoreboard("A: seasontype+week+dates=year",
-                              {"seasontype": 2, "week": 1, "dates": 2026})
-            _test_scoreboard("B: seasontype+week only (no dates)",
-                              {"seasontype": 2, "week": 1})
-            _test_scoreboard("C: dates=explicit Sunday range only",
-                              {"dates": "20260913-20260914"})
-            _test_scoreboard("D: dates=explicit Sunday range + seasontype",
-                              {"seasontype": 2, "dates": "20260913-20260914"})
-            _test_scoreboard("E: no params at all (current default)",
-                              {})
-
     games, week_num, err = fetch_espn_scoreboard()
 
     if err or not games:
@@ -1224,10 +1158,10 @@ with tab2:
         # Map ESPN team names to our model's team names
         espn_to_model = {v.split('/')[-1].replace('.png',''):k for k,v in ESPN_LOGOS.items()}
         def match_team(espn_name):
-            # Exact match first — this is what our hardcoded WEEK1_2026_SCHEDULE
-            # always provides, since it already uses the exact same team name
-            # strings as CURRENT_NFL_TEAMS. Checking this before the fuzzy
-            # substring fallback below is essential: that fallback matches on
+            # Exact match first — ESPN's live scoreboard already returns the
+            # exact same team name strings as CURRENT_NFL_TEAMS, confirmed
+            # via live debugging. Checking this before the fuzzy substring
+            # fallback below is essential: that fallback matches on
             # individual WORDS, and several team names share a common word
             # (e.g. "New England Patriots"/"New Orleans Saints"/"New York
             # Giants"/"New York Jets" all contain "New"; "Los Angeles Rams"/
