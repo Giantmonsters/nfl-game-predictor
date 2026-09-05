@@ -323,6 +323,40 @@ def fetch_espn_team_stats(team_name):
     except:
         return {}
 
+@st.cache_data(ttl=3600)
+def fetch_espn_team_record(team_name, debug=False):
+    """Team's current REGULAR SEASON W-L record (e.g. '0-0' before Week 1),
+    pulled from the teams/{abbr} endpoint.
+
+    History: tried twice before and removed twice. First attempt used no
+    extra params — record showed real-looking-but-wrong numbers (e.g.
+    Seahawks '0-2-1'). Second attempt added season=2026, which changed
+    nothing. Live debugging then revealed the actual cause: that record
+    genuinely IS real 2026 data, but ESPN's record.total field lumps
+    PRESEASON and regular season games together (3 games played = exactly
+    the preseason game count) with no way to separate them from that field
+    alone. This third attempt adds seasontype=2 (regular season only) to the
+    request — the same fix that already resolved this identical
+    preseason-contamination problem for Recent Form and the live schedule
+    elsewhere in this app. NOT yet confirmed whether this particular
+    endpoint (teams/{abbr}, not .../schedule or .../statistics) actually
+    respects that param the same way. Returns None on any failure."""
+    try:
+        abbr = ESPN_ABBR.get(team_name)
+        if not abbr:
+            return None
+        url = f"https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams/{abbr}"
+        r = requests.get(url, params={"seasontype": 2}, timeout=10)
+        team = r.json().get("team", {})
+        if debug:
+            st.write(f"DEBUG (team record) — record field for {team_name} with seasontype=2:")
+            st.json(team.get("record", {}))
+        record_items = team.get("record", {}).get("items", [])
+        total = next((r for r in record_items if r.get("type") == "total"), None)
+        return total.get("summary") if total else None
+    except Exception:
+        return None
+
 
 @st.cache_data(ttl=3600)
 def fetch_espn_recent_form(team_name, n=5):
@@ -1261,6 +1295,14 @@ with tab2:
 
             if not display_games:
                 st.info(f"No game found for {team_filter} this week — likely a bye week.")
+
+            with st.expander("🛠️ Debug: verify team record (3rd attempt — seasontype=2 filter)"):
+                st.caption("Checks whether adding seasontype=2 (regular season only) finally shows 0-0 before Week 1, instead of the preseason-contaminated record seen in earlier attempts.")
+                if st.button("Check a team's record", key="record_debug_run"):
+                    test_team = display_games[0]['home_mapped'] if display_games else CURRENT_NFL_TEAMS[0]
+                    fetch_espn_team_record.clear()
+                    result = fetch_espn_team_record(test_team, debug=True)
+                    st.markdown(f"**{test_team}** — with `seasontype=2`: **{result}**")
 
             for g in display_games:
                 diff = abs(g['hp']-g['ap'])
