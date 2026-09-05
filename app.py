@@ -253,7 +253,23 @@ FOX_RANKINGS = [
 def fetch_espn_scoreboard():
     try:
         url = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
-        r = requests.get(url, timeout=10)
+        # Without explicit params, ESPN's scoreboard defaults to "today's"
+        # games, which — since the 2026 regular season hasn't started —
+        # returned stale/incorrect matchups (the same root cause fixed
+        # elsewhere for Recent Form and Top Performers: preseason/off-period
+        # data leaking in). seasontype=2 forces regular season only.
+        #
+        # week is computed from today's date rather than hardcoded, so this
+        # keeps showing the correct current week automatically as the season
+        # progresses, instead of needing a manual code edit every week.
+        # Week 1 games start Sun 2026-09-13; NFL weeks run Tue-Mon, so the
+        # Tuesday two days before (2026-09-08) is used as the week-1 anchor.
+        season_week1_start = datetime(2026, 9, 8)
+        days_since = (datetime.now() - season_week1_start).days
+        current_week = max(1, min(18, (days_since // 7) + 1))
+
+        params = {"seasontype": 2, "week": current_week, "dates": 2026}
+        r = requests.get(url, params=params, timeout=10)
         data = r.json()
         events = data.get("events", [])
         games = []
@@ -272,7 +288,7 @@ def fetch_espn_scoreboard():
                 "status": status,
                 "name": e.get("name",""),
             })
-        return games, data.get("week", {}).get("number", None), None
+        return games, data.get("week", {}).get("number", current_week), None
     except Exception as ex:
         return [], None, str(ex)
 
@@ -1130,7 +1146,6 @@ with tab1:
 # ════════════════════════════════════════════
 with tab2:
     st.markdown("### 📅 This Week's NFL Games")
-    st.markdown("Live matchups pulled from the ESPN API, with NFLNerd predictions for every game.")
 
     games, week_num, err = fetch_espn_scoreboard()
 
@@ -1161,10 +1176,9 @@ with tab2:
             # Weekly highlights
             most_confident = max(predictions, key=lambda x: abs(x['hp']-x['ap']))
             closest = min(predictions, key=lambda x: abs(x['hp']-x['ap']))
-            biggest_upset = min(predictions, key=lambda x: x['hp'] if x['winner']!=x['home_mapped'] else x['ap'])
 
             st.markdown("#### ⚡ NFLNerd Weekly Highlights")
-            c1,c2,c3 = st.columns(3)
+            c1,c2 = st.columns(2)
             with c1:
                 st.markdown("**🟢 Most Confident Pick**")
                 st.markdown(f"**{most_confident['winner']}** to win")
@@ -1174,10 +1188,6 @@ with tab2:
                 st.markdown("**🔴 Closest Game**")
                 st.markdown(f"{closest['home_mapped']} vs {closest['away_mapped']}")
                 st.markdown(f"{closest['hp']:.1%} vs {closest['ap']:.1%} — genuine coin flip")
-            with c3:
-                st.markdown("**🎯 Upset Watch**")
-                st.markdown(f"**{biggest_upset['winner']}** predicted to win")
-                st.markdown(f"Keep an eye on this one")
 
             st.markdown("---")
             st.markdown("#### 🏈 Game Predictions")
@@ -1187,6 +1197,7 @@ with tab2:
                 conf_color = "#00C853" if diff>=0.15 else ("#FFB300" if diff>=0.07 else "#D50A0A")
                 home_logo = ESPN_LOGOS.get(g['home_mapped'],'')
                 away_logo = ESPN_LOGOS.get(g['away_mapped'],'')
+                game_key = f"{g['home_mapped']}_{g['away_mapped']}_{g.get('date','')}".replace(" ","_")
 
                 with st.container():
                     st.markdown(f'<div class="match-card">', unsafe_allow_html=True)
@@ -1207,6 +1218,22 @@ with tab2:
                         if away_logo: st.image(away_logo, width=50)
                         st.markdown(f"**{g['away_mapped']}**")
                         st.markdown(f"✈️ Away • {g['ap']:.1%}")
+
+                    with st.expander("🥊 Make Your Own Pick"):
+                        pc1, pc2 = st.columns(2)
+                        with pc1:
+                            your_winner = st.radio("Who do you think wins?", [g['home_mapped'], g['away_mapped']], key=f"your_winner_{game_key}")
+                        with pc2:
+                            your_confidence = st.radio("Your confidence", ["🔴 Low", "🟡 Medium", "🟢 High"], key=f"your_confidence_{game_key}")
+                        if st.session_state.get(f"pick_saved_{game_key}"):
+                            st.success(f"✅ Pick saved — {your_winner} ({your_confidence}). Change your selections above and save again to log a new pick.")
+                        if st.button("💾 Save My Pick", key=f"save_{game_key}", use_container_width=True):
+                            save_pick(g['home_mapped'], g['away_mapped'], g['winner'],
+                                      g['hp'] if g['winner']==g['home_mapped'] else g['ap'],
+                                      g['conf'], your_winner, your_confidence)
+                            st.session_state[f"pick_saved_{game_key}"] = True
+                            st.rerun()
+
                     st.markdown('</div>', unsafe_allow_html=True)
 
 # ════════════════════════════════════════════
