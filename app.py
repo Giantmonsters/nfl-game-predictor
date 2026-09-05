@@ -324,46 +324,78 @@ def fetch_espn_recent_form(team_name, n=5):
         return None
 
 @st.cache_data(ttl=3600)
-def fetch_espn_key_players(team_name):
-    """Live team statistical leaders (passing/rushing/receiving) pulled from
-    ESPN's team endpoint. Returns [] on any failure so the UI can show a
-    graceful fallback message instead of breaking."""
+def fetch_espn_key_players(team_name, debug=False):
+    """Live team statistical leaders — offense (passing/rushing/receiving) and
+    defense (tackles/sacks/interceptions) — pulled from ESPN's team endpoint.
+    Returns [] on any failure so the UI can show a graceful fallback message
+    instead of breaking.
+
+    Matching is done by substring on the category's internal name rather than
+    an exact match, since ESPN's exact key names for this endpoint weren't
+    verified against a live response — substring matching is more resilient
+    to minor naming variants (e.g. 'totalTackles' vs 'soloTackles')."""
     try:
         abbr = ESPN_ABBR.get(team_name)
         if not abbr:
             return []
-        url = f"https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams/{abbr}"
-        r = requests.get(url, params={"enable": "leaders"}, timeout=10)
-        team = r.json().get("team", {})
-        leaders_raw = team.get("leaders", [])
 
-        wanted = {
-            "passingYards":   "🎯 Passing",
-            "rushingYards":   "🏃 Rushing",
-            "receivingYards": "🙌 Receiving",
-        }
-        out = []
-        for cat in leaders_raw:
-            name = cat.get("name", "")
-            if name not in wanted:
-                continue
-            lst = cat.get("leaders", [])
-            if not lst:
-                continue
-            top = lst[0]
-            athlete = top.get("athlete", {})
-            out.append({
-                "category": wanted[name],
-                "player": athlete.get("displayName", "Unknown"),
-                "position": athlete.get("position", {}).get("abbreviation", ""),
-                "stat": top.get("displayValue", ""),
-            })
-        # Keep a consistent order regardless of the order ESPN returns them in
-        order = {"🎯 Passing": 0, "🏃 Rushing": 1, "🙌 Receiving": 2}
-        out.sort(key=lambda x: order.get(x["category"], 99))
+        def get_leaders(season=None):
+            url = f"https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams/{abbr}"
+            params = {"enable": "leaders"}
+            if season:
+                params["season"] = season
+            r = requests.get(url, params=params, timeout=10)
+            data = r.json()
+            if debug:
+                st.write(f"DEBUG — raw leaders payload for {team_name} (season={season}):")
+                st.json(data.get("team", {}).get("leaders", data))
+            return data.get("team", {}).get("leaders", [])
+
+        # (substring to match on the category's internal name, display label, sort order)
+        wanted = [
+            ("passingyards",   "🎯 Passing",   0),
+            ("rushingyards",   "🏃 Rushing",   1),
+            ("receivingyards", "🙌 Receiving", 2),
+            ("tackles",        "🛡️ Tackles",   3),
+            ("sacks",          "💥 Sacks",     4),
+            ("interceptions",  "🧤 INTs",      5),
+        ]
+
+        def parse(leaders_raw):
+            out = []
+            found_labels = set()
+            for cat in leaders_raw:
+                name = cat.get("name", "").lower()
+                match = next(((label, order) for key, label, order in wanted
+                              if key in name and label not in found_labels), None)
+                if not match:
+                    continue
+                label, order = match
+                lst = cat.get("leaders", [])
+                if not lst:
+                    continue
+                top = lst[0]
+                athlete = top.get("athlete", {})
+                out.append({
+                    "category": label,
+                    "order": order,
+                    "player": athlete.get("displayName", "Unknown"),
+                    "position": athlete.get("position", {}).get("abbreviation", ""),
+                    "stat": top.get("displayValue", ""),
+                })
+                found_labels.add(label)
+            return out
+
+        out = parse(get_leaders())
+        if not out:
+            # Offseason fallback: no current-season leaders yet, so pull the
+            # most recently finished season's final leaders instead.
+            out = parse(get_leaders(season=2025))
+        out.sort(key=lambda x: x["order"])
         return out
     except Exception:
         return []
+
 
 # ── Model ────────────────────────────────────
 @st.cache_resource
@@ -730,6 +762,12 @@ with tab1:
                         st.markdown(f"{p['category']}: **{p['player']}**{pos} — {p['stat']}")
                 else:
                     st.caption("Player stats unavailable right now.")
+
+            if not home_players and not away_players:
+                with st.expander("🛠️ Debug: inspect raw ESPN response"):
+                    st.caption("Temporary tool to see exactly what ESPN's API returns, so the Key Players feature can be fixed if the field names don't match.")
+                    fetch_espn_key_players.clear()
+                    fetch_espn_key_players(home_team, debug=True)
 
             st.markdown("---")
             st.subheader("🥊 Your NFLNerd Pick")
