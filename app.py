@@ -529,8 +529,7 @@ tab1,tab2,tab3,tab4,tab5,tab6,tab7,tab8 = st.tabs([
 # ════════════════════════════════════════════
 with tab1:
     st.markdown("### 🔮 Predict Any NFL Matchup")
-    st.markdown("**The NFL Game Predictor is a tool that predicts the outcome of any NFL matchup. Select the two teams and the model returns each team's probability of winning. Predictions are based on each team's historical performance data, going back to 1990.**")
-    st.caption("⚠️ Recent form is based on historical data only — live form coming soon.")
+    st.markdown("**The NFL Game Predictor is a tool that predicts the outcome of any NFL matchup. Select the two teams and the model returns each team's probability of winning.**")
     st.markdown("---")
 
     c1,c2 = st.columns(2)
@@ -585,43 +584,9 @@ with tab1:
             elif diff>=0.07: st.markdown(f'<span class="confidence-med">{conf}</span> — The model leans one way but it\'s not clear cut.', unsafe_allow_html=True)
             else: st.markdown(f'<span class="confidence-low">{conf}</span> — This is a very tight matchup. Could go either way.', unsafe_allow_html=True)
 
-            # Win probability chart
-            st.markdown("---")
-            st.subheader("📊 Win Probability")
-            fig=go.Figure(go.Bar(
-                x=[f"🏠 {home_team}",f"✈️ {away_team}"],y=[hp*100,ap*100],
-                marker_color=["#013369","#D50A0A"],
-                text=[f"{hp:.1%}",f"{ap:.1%}"],
-                textposition="outside",textfont=dict(color="white",size=16)))
-            fig.update_layout(**CHART_LAYOUT,yaxis=dict(title="Win Probability (%)",range=[0,115],gridcolor="#222"),xaxis=dict(gridcolor="#222"),height=350)
-            st.plotly_chart(fig,use_container_width=True)
-
-            # Team stats comparison
-            st.markdown("---")
-            st.subheader("📋 Team Stats Comparison")
-            st.dataframe(pd.DataFrame({
-                'Stat':['Historical Win Rate','Avg Points Scored','Avg Points Conceded'],
-                f'🏠 {home_team}':[f"{h_wr:.1%}",f"{h_sc:.1f}",f"{h_co:.1f}"],
-                f'✈️ {away_team}':[f"{a_wr:.1%}",f"{a_sc:.1f}",f"{a_co:.1f}"],
-            }).set_index('Stat'),use_container_width=True)
-
-            # Head to head
-            st.markdown("---")
-            st.subheader("⚔️ Head to Head Record")
-            w1,w2,tot = get_head_to_head(scores,home_team,away_team)
-            if tot==0: st.write("No head to head record found.")
-            else:
-                c1,c2,c3=st.columns(3)
-                with c1: st.metric(f"🏠 {home_team} Wins",w1)
-                with c2: st.metric("Total Games",tot)
-                with c3: st.metric(f"✈️ {away_team} Wins",w2)
-                if w1>w2: st.write(f"**{home_team}** lead the all time series {w1}-{w2}")
-                elif w2>w1: st.write(f"**{away_team}** lead the all time series {w2}-{w1}")
-                else: st.write(f"The all time series is tied {w1}-{w2}")
-
             # Recent form
             st.markdown("---")
-            st.subheader("📅 Recent Form (Last 5 Games — Historical Data)")
+            st.subheader("📅 Recent Form (Last 5 Games)")
             c1,c2=st.columns(2)
             with c1:
                 st.markdown(f"**🏠 {home_team}**")
