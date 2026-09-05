@@ -325,33 +325,41 @@ def fetch_espn_recent_form(team_name, n=5):
 
 @st.cache_data(ttl=3600)
 def fetch_espn_key_players(team_name, debug=False):
-    """Live team statistical leaders — offense (passing/rushing/receiving) and
-    defense (tackles/sacks/interceptions) — pulled from ESPN's team endpoint.
-    Returns [] on any failure so the UI can show a graceful fallback message
-    instead of breaking.
+    """Live statistical leaders for a team — offense (passing/rushing/
+    receiving) and defense (tackles/sacks/interceptions) — pulled from ESPN's
+    league-wide leaders endpoint and filtered down to this team's players.
 
-    Matching is done by substring on the category's internal name rather than
-    an exact match, since ESPN's exact key names for this endpoint weren't
-    verified against a live response — substring matching is more resilient
-    to minor naming variants (e.g. 'totalTackles' vs 'soloTackles')."""
+    (Earlier version tried teams/{abbr}?enable=leaders, but debugging showed
+    that endpoint has no 'leaders' field at all — it's team-level
+    record/roster/link data only, no player stats. This uses the actual
+    league leaderboard instead and matches entries by team abbreviation.)
+
+    Because this is a TOP-N league leaderboard rather than a full per-team
+    stat sheet, weaker teams may legitimately have no representative in a
+    given category (e.g. a team with a mediocre pass rush may have no player
+    in the league's top sacks leaders) — that's expected, not a bug.
+
+    Returns [] on any failure so the UI can show a graceful fallback message
+    instead of breaking."""
     try:
         abbr = ESPN_ABBR.get(team_name)
         if not abbr:
             return []
 
-        def get_leaders(season=None):
-            url = f"https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams/{abbr}"
-            params = {"enable": "leaders"}
+        def get_categories(season=None):
+            url = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/leaders"
+            params = {}
             if season:
                 params["season"] = season
             r = requests.get(url, params=params, timeout=10)
             data = r.json()
             if debug:
-                st.write(f"DEBUG — raw leaders payload for {team_name} (season={season}):")
-                st.json(data.get("team", {}).get("leaders", data))
-            return data.get("team", {}).get("leaders", [])
+                st.write(f"DEBUG — raw league leaders payload (season={season}):")
+                st.json(data)
+            # The categories list can live at the top level or nested under
+            # 'leaders' depending on the response shape — handle both.
+            return data.get("leaders", data.get("categories", []))
 
-        # (substring to match on the category's internal name, display label, sort order)
         wanted = [
             ("passingyards",   "🎯 Passing",   0),
             ("rushingyards",   "🏃 Rushing",   1),
@@ -361,40 +369,43 @@ def fetch_espn_key_players(team_name, debug=False):
             ("interceptions",  "🧤 INTs",      5),
         ]
 
-        def parse(leaders_raw):
+        def parse(categories):
             out = []
             found_labels = set()
-            for cat in leaders_raw:
+            for cat in categories:
                 name = cat.get("name", "").lower()
                 match = next(((label, order) for key, label, order in wanted
                               if key in name and label not in found_labels), None)
                 if not match:
                     continue
                 label, order = match
-                lst = cat.get("leaders", [])
-                if not lst:
-                    continue
-                top = lst[0]
-                athlete = top.get("athlete", {})
-                out.append({
-                    "category": label,
-                    "order": order,
-                    "player": athlete.get("displayName", "Unknown"),
-                    "position": athlete.get("position", {}).get("abbreviation", ""),
-                    "stat": top.get("displayValue", ""),
-                })
-                found_labels.add(label)
+                # Find this team's highest-ranked entry in this category
+                for entry in cat.get("leaders", []):
+                    athlete = entry.get("athlete", {})
+                    team_info = athlete.get("team", {}) or entry.get("team", {})
+                    entry_abbr = team_info.get("abbreviation", "").lower()
+                    if entry_abbr == abbr:
+                        out.append({
+                            "category": label,
+                            "order": order,
+                            "player": athlete.get("displayName", "Unknown"),
+                            "position": athlete.get("position", {}).get("abbreviation", ""),
+                            "stat": entry.get("displayValue", ""),
+                        })
+                        found_labels.add(label)
+                        break
             return out
 
-        out = parse(get_leaders())
+        out = parse(get_categories())
         if not out:
-            # Offseason fallback: no current-season leaders yet, so pull the
-            # most recently finished season's final leaders instead.
-            out = parse(get_leaders(season=2025))
+            # Offseason fallback: no current-season leaderboard yet, so pull
+            # the most recently finished season's final leaders instead.
+            out = parse(get_categories(season=2025))
         out.sort(key=lambda x: x["order"])
         return out
     except Exception:
         return []
+
 
 
 # ── Model ────────────────────────────────────
