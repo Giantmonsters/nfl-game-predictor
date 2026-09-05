@@ -323,36 +323,6 @@ def fetch_espn_team_stats(team_name):
     except:
         return {}
 
-@st.cache_data(ttl=3600)
-def fetch_espn_team_record(team_name, debug=False):
-    """Team's current W-L record for the 2026 season (e.g. '0-0' before Week 1
-    kicks off), pulled from the teams/{abbr} endpoint.
-
-    This was removed once already after appearing to show real, plausible-
-    looking-but-wrong records (e.g. '3-0') before Week 1 had even been
-    played. That's the same root-cause bug pattern already fixed elsewhere
-    in this app (Recent Form, Team Season Stats, Key Players): without an
-    explicit season param, ESPN's "current" endpoints default to the most
-    recent COMPLETED season's final data rather than the new season's
-    (correctly empty) one. This explicitly passes season=2026 to force the
-    real current season instead of silently falling back to 2025's final
-    record. Returns None on any failure, so the UI can omit the record
-    rather than show something wrong."""
-    try:
-        abbr = ESPN_ABBR.get(team_name)
-        if not abbr:
-            return None
-        url = f"https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams/{abbr}"
-        r = requests.get(url, params={"season": 2026}, timeout=10)
-        team = r.json().get("team", {})
-        if debug:
-            st.write(f"DEBUG (team record) — record field for {team_name} with season=2026:")
-            st.json(team.get("record", {}))
-        record_items = team.get("record", {}).get("items", [])
-        total = next((r for r in record_items if r.get("type") == "total"), None)
-        return total.get("summary") if total else None
-    except Exception:
-        return None
 
 @st.cache_data(ttl=3600)
 def fetch_espn_recent_form(team_name, n=5):
@@ -1292,23 +1262,6 @@ with tab2:
             if not display_games:
                 st.info(f"No game found for {team_filter} this week — likely a bye week.")
 
-            with st.expander("🛠️ Debug: verify team record shows 0-0 before Week 1"):
-                st.caption("Compares the record fetched with season=2026 (should be 0-0 before Week 1) against the same call with no season param (which previously returned each team's real 2025 record by mistake) — to confirm the fix actually worked.")
-                if st.button("Check a team's record", key="record_debug_run"):
-                    test_team = display_games[0]['home_mapped'] if display_games else CURRENT_NFL_TEAMS[0]
-                    fetch_espn_team_record.clear()
-                    fixed_record = fetch_espn_team_record(test_team, debug=True)
-                    try:
-                        abbr = ESPN_ABBR.get(test_team)
-                        r = requests.get(f"https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams/{abbr}", timeout=10)
-                        old_team = r.json().get("team", {})
-                        old_items = old_team.get("record", {}).get("items", [])
-                        old_total = next((x for x in old_items if x.get("type")=="total"), None)
-                        old_record = old_total.get("summary") if old_total else None
-                    except Exception:
-                        old_record = None
-                    st.markdown(f"**{test_team}** — with `season=2026`: **{fixed_record}**  |  without season param: **{old_record}**")
-
             for g in display_games:
                 diff = abs(g['hp']-g['ap'])
                 conf_color = "#00C853" if diff>=0.15 else ("#FFB300" if diff>=0.07 else "#D50A0A")
@@ -1335,12 +1288,9 @@ with tab2:
                     # predicted probability — the prediction is no longer the interesting number.
                     show_live_score = state in ("in", "post") and g.get('home_score') is not None and g.get('away_score') is not None
 
-                    home_record = fetch_espn_team_record(g['home_mapped'])
-                    away_record = fetch_espn_team_record(g['away_mapped'])
-
                     with c1:
                         if home_logo: st.image(home_logo, width=50)
-                        st.markdown(f"**{g['home_mapped']}**" + (f" ({home_record})" if home_record else ""))
+                        st.markdown(f"**{g['home_mapped']}**")
                         if show_live_score:
                             st.markdown(f"🏠 Home • **{g['home_score']}**")
                         else:
@@ -1365,7 +1315,7 @@ with tab2:
                         st.markdown("<div style='text-align:center;padding-top:20px;color:#666;font-size:20px;'>VS</div>", unsafe_allow_html=True)
                     with c5:
                         if away_logo: st.image(away_logo, width=50)
-                        st.markdown(f"**{g['away_mapped']}**" + (f" ({away_record})" if away_record else ""))
+                        st.markdown(f"**{g['away_mapped']}**")
                         if show_live_score:
                             st.markdown(f"✈️ Away • **{g['away_score']}**")
                         else:
