@@ -4,3 +4,4 @@ scikit-learn
 xgboost
 plotly
 streamlit-sortables
+blob:https://claude.ai/dda6aef0-9f06-4453-89cf-5fafdead46d8
