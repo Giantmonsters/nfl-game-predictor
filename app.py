@@ -1154,6 +1154,19 @@ with tab1:
 with tab2:
     st.markdown("### 📅 This Week's NFL Games")
 
+    with st.expander("🛠️ Debug: test standings endpoint with seasontype=2"):
+        st.caption("Testing a lead from ESPN's own site URL (espn.com/nfl/standings/_/seasontype/2), which explicitly shows regular-season-only standings for all 32 teams. This tries adding that same seasontype=2 param to the API standings endpoint (previously only tried bare, which returned just a placeholder link with no data).")
+        if st.button("Test standings endpoint", key="standings_debug_run"):
+            try:
+                url = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/standings"
+                params = {"seasontype": 2, "season": 2026}
+                r = requests.get(url, params=params, timeout=10)
+                data = r.json()
+                st.write(f"HTTP {r.status_code} — top-level keys: {list(data.keys()) if isinstance(data, dict) else type(data)}")
+                st.json(data)
+            except Exception as ex:
+                st.write(f"FAILED: {ex}")
+
     def format_kickoff(iso_str):
         """Format ESPN's UTC kickoff timestamp into a readable ET time.
         Uses a fixed UTC-4 offset (EDT), which is correct for the September
