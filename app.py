@@ -1400,9 +1400,6 @@ with tab3:
     for team in CURRENT_NFL_TEAMS:
         current_ranks.setdefault(team, 32)
 
-    if not is_saved:
-        st.caption(f"Showing carried-forward rankings for Week {selected_week} — not yet saved. Edit and save below to publish this week's own rankings.")
-
     # ── Editing, tucked away rather than replacing the main view ──
     show_editor = st.checkbox(f"✏️ Edit Week {selected_week} Rankings", key=f"show_editor_{selected_week}")
     if show_editor:
