@@ -950,11 +950,10 @@ accuracy = lr_acc
 all_teams = sorted(CURRENT_NFL_TEAMS)
 
 # ── Tabs ─────────────────────────────────────
-tab1,tab2,tab3,tab4,tab5,tab6,tab7,tab8 = st.tabs([
+tab1,tab2,tab3,tab4,tab5,tab6,tab7 = st.tabs([
     "🔮 Predict",
     "📅 This Week's Games",
     "🏆 Team Rankings",
-    "📜 Prediction History",
     "📊 How It Works",
     "🧪 Data Science",
     "🛠️ New Updates",
@@ -1243,6 +1242,17 @@ with tab2:
         if bye_teams:
             st.info(f"💤 **On a bye this week:** {', '.join(bye_teams)}")
 
+        # Load saved picks and match the most recent one per matchup, so we
+        # can show "your pick" alongside the model's prediction on each card.
+        picks_df = load_picks()
+        picks_lookup = {}
+        if not picks_df.empty:
+            for p in predictions:
+                matched = picks_df[(picks_df['home_team'] == p['home_mapped']) &
+                                    (picks_df['away_team'] == p['away_mapped'])]
+                if not matched.empty:
+                    picks_lookup[(p['home_mapped'], p['away_mapped'])] = matched.sort_values('timestamp').iloc[-1]
+
         if predictions:
             # Weekly highlights — based on the full week, not the filter below
             most_confident = max(predictions, key=lambda x: abs(x['hp']-x['ap']))
@@ -1259,6 +1269,45 @@ with tab2:
                 st.markdown("**🔴 Closest Game**")
                 st.markdown(f"{closest['home_mapped']} vs {closest['away_mapped']}")
                 st.markdown(f"{closest['hp']:.1%} vs {closest['ap']:.1%}")
+
+            # How Did We Do This Week? — model vs your own picks, across all
+            # of this week's games that have actually finished (state=='post').
+            # Only shown once at least one game is final, so it stays silent
+            # for the whole pre-kickoff week.
+            model_correct, model_total = 0, 0
+            your_correct, your_total = 0, 0
+            for p in predictions:
+                if p.get('state') != 'post' or p.get('home_score') is None or p.get('away_score') is None:
+                    continue
+                try:
+                    h_score, a_score = float(p['home_score']), float(p['away_score'])
+                except (TypeError, ValueError):
+                    continue
+                if h_score == a_score:
+                    continue
+                actual = p['home_mapped'] if h_score > a_score else p['away_mapped']
+                model_total += 1
+                if p['winner'] == actual:
+                    model_correct += 1
+                pick_row = picks_lookup.get((p['home_mapped'], p['away_mapped']))
+                if pick_row is not None:
+                    your_total += 1
+                    if pick_row['your_winner'] == actual:
+                        your_correct += 1
+
+            if model_total > 0:
+                st.markdown("---")
+                st.markdown("#### 🏆 How Did We Do This Week?")
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.metric("NFLNerd Model", f"{model_correct}/{model_total}",
+                              help="Correct predictions out of this week's finished games.")
+                with c2:
+                    if your_total > 0:
+                        st.metric("Your Picks", f"{your_correct}/{your_total}",
+                                  help="Correct picks out of this week's finished games you made a pick for.")
+                    else:
+                        st.metric("Your Picks", "—", help="You haven't made any picks for this week's finished games yet.")
 
             st.markdown("---")
             st.markdown("#### 🏈 Game Predictions")
@@ -1305,6 +1354,7 @@ with tab2:
                     # Once a game is live or final, show the real score instead of the
                     # predicted probability — the prediction is no longer the interesting number.
                     show_live_score = state in ("in", "post") and g.get('home_score') is not None and g.get('away_score') is not None
+                    actual_winner = None
 
                     with c1:
                         if home_logo: st.image(home_logo, width=50)
@@ -1338,6 +1388,16 @@ with tab2:
                             st.markdown(f"✈️ Away • **{g['away_score']}**")
                         else:
                             st.markdown(f"✈️ Away • {g['ap']:.1%}")
+
+                    pick_row = picks_lookup.get((g['home_mapped'], g['away_mapped']))
+                    if pick_row is not None:
+                        pick_winner = pick_row['your_winner']
+                        pick_conf = pick_row['your_confidence']
+                        if actual_winner:
+                            correct_icon = "✅" if pick_winner == actual_winner else "❌"
+                            st.markdown(f"<div style='text-align:center;font-size:12px;color:#aaa;margin-top:6px;'>🥊 Your Pick: {pick_winner} ({pick_conf}) {correct_icon}</div>", unsafe_allow_html=True)
+                        else:
+                            st.markdown(f"<div style='text-align:center;font-size:12px;color:#aaa;margin-top:6px;'>🥊 Your Pick: {pick_winner} ({pick_conf})</div>", unsafe_allow_html=True)
 
                     with st.expander("🥊 Make Your Own Pick"):
                         pc1, pc2 = st.columns(2)
@@ -1517,46 +1577,9 @@ with tab3:
     """, unsafe_allow_html=True)
 
 # ════════════════════════════════════════════
-# TAB 4 — PREDICTION HISTORY
+# TAB 4 — HOW IT WORKS
 # ════════════════════════════════════════════
 with tab4:
-    st.markdown("### 📜 NFLNerd Prediction History")
-
-    st.markdown("#### 🥊 Your Saved Picks vs the Model")
-    st.markdown("Every time you've disagreed (or agreed) with the model on the Predict tab, it's logged here. These are hypothetical matchups you tested — not real upcoming games — so there's no actual result to check against, just a record of where your judgement and the model's line up or differ.")
-
-    picks_df = load_picks()
-    if picks_df.empty:
-        st.info("No picks saved yet. Head to the 🔮 Predict tab, make a prediction, and save your own pick to see it here.")
-    else:
-        agree_count = (picks_df['agree']=='Yes').sum()
-        disagree_count = (picks_df['agree']=='No').sum()
-        c1,c2,c3 = st.columns(3)
-        with c1: st.metric("Total Picks Logged", len(picks_df))
-        with c2: st.metric("Agreed with Model", agree_count)
-        with c3: st.metric("Disagreed with Model", disagree_count)
-        st.dataframe(picks_df.sort_values('timestamp', ascending=False), use_container_width=True, hide_index=True)
-
-    st.markdown("---")
-    st.markdown("### 📅 Official Weekly Predictions")
-    st.markdown("A record of every official NFLNerd weekly prediction, logged alongside my YouTube videos.")
-    st.markdown("---")
-
-    st.info("🏈 **No predictions logged yet.** Check back after Week 1 of the 2026 NFL season — every weekly prediction will be recorded here alongside the actual results.")
-
-    st.markdown("#### What this tab will show:")
-    st.markdown("""
-- **Season selector** — browse predictions from any season
-- **Overall accuracy** — how many games NFLNerd correctly predicted this season
-- **Best and worst week** — the highest and lowest accuracy week of the season
-- **Biggest correct call** — the highest confidence prediction that turned out right
-- **Full prediction log** — every game, the predicted winner, the actual winner, and whether it was correct
-""")
-
-# ════════════════════════════════════════════
-# TAB 5 — HOW IT WORKS
-# ════════════════════════════════════════════
-with tab5:
     st.markdown("### 📊 How It Works")
     st.markdown("A simple explainer for NFL fans on how the predictor makes its decisions.")
     st.markdown("---")
@@ -1599,9 +1622,9 @@ The gap between those two numbers determines the confidence level:
         st.markdown('<div style="background:#001a08;border:1px solid #00C853;border-radius:8px;padding:16px;text-align:center;"><div style="font-size:24px;">🟢</div><div style="font-family:Oswald;font-size:16px;color:#00C853;">HIGH CONFIDENCE</div><div style="font-size:13px;color:#aaa;margin-top:8px;">Gap over 15%<br>e.g. 66% vs 34%<br>Strong favourite</div></div>', unsafe_allow_html=True)
 
 # ════════════════════════════════════════════
-# TAB 6 — DATA SCIENCE
+# TAB 5 — DATA SCIENCE
 # ════════════════════════════════════════════
-with tab6:
+with tab5:
     st.markdown("### 🧪 Data Science & Model Analysis – Mikail Atif")
     st.markdown("The NFL Game Predictor is a machine learning model trained and tested on over 9,000 games and 35 NFL seasons. This tab walks through everything behind the scenes - how it was built, what it learned, and how well it performs.")
 
@@ -2134,9 +2157,9 @@ Given this, I chose to keep the all-time historical model. A model that is sligh
 """)
 
 # ════════════════════════════════════════════
-# TAB 7 — NEW UPDATES
+# TAB 6 — NEW UPDATES
 # ════════════════════════════════════════════
-with tab7:
+with tab6:
     st.markdown("### 🛠️ New Updates")
     st.markdown("A running changelog of improvements made to the NFL Game Predictor since the Data Science tab was finalized. Newest updates at the top.")
     st.markdown("---")
@@ -2156,9 +2179,9 @@ Since this genuinely passed every check, unlike the 3-season experiment, I kept 
 """)
 
 # ════════════════════════════════════════════
-# TAB 8 — WHO AM I?
+# TAB 7 — WHO AM I?
 # ════════════════════════════════════════════
-with tab8:
+with tab7:
     st.markdown("### 👤 Who Am I?")
     st.markdown("---")
     c1,c2 = st.columns([1,2])
