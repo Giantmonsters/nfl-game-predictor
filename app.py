@@ -313,17 +313,6 @@ ESPN_ABBR = {
     'Tennessee Titans':'ten','Washington Commanders':'wsh',
 }
 
-@st.cache_data(ttl=3600)
-def fetch_espn_team_stats(team_name):
-    try:
-        abbr = ESPN_ABBR.get(team_name)
-        if not abbr: return {}
-        url = f"https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams/{abbr}"
-        r = requests.get(url, timeout=10)
-        return r.json().get("team", {})
-    except:
-        return {}
-
 
 
 @st.cache_data(ttl=3600)
@@ -705,18 +694,6 @@ def get_recent_form(scores,team,n=5):
     all_g=pd.concat([hg[['schedule_date','result','win']],ag[['schedule_date','result','win']]])
     all_g['schedule_date']=pd.to_datetime(all_g['schedule_date'])
     return all_g.sort_values('schedule_date',ascending=False).head(n)
-
-def get_head_to_head(scores,t1,t2):
-    h2h=scores[((scores['team_home']==t1)&(scores['team_away']==t2))|((scores['team_home']==t2)&(scores['team_away']==t1))].copy()
-    w1=w2=0
-    for _,r in h2h.iterrows():
-        if r['team_home']==t1:
-            if r['score_home']>r['score_away']: w1+=1
-            else: w2+=1
-        else:
-            if r['score_away']>r['score_home']: w1+=1
-            else: w2+=1
-    return w1,w2,len(h2h)
 
 RANKINGS_FILE = "nflnerd_rankings_history.csv"
 
