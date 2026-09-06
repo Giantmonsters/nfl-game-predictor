@@ -981,7 +981,7 @@ tab1,tab2,tab3,tab4,tab5,tab6,tab7 = st.tabs([
     "📊 How It Works",
     "🧪 Data Science",
     "🛠️ New Updates",
-    "👤 Who Am I?"
+    "👤 About Me"
 ])
 
 # ════════════════════════════════════════════
@@ -2252,7 +2252,7 @@ Since this genuinely passed every check, unlike the 3-season experiment, I kept 
 # TAB 7 — WHO AM I?
 # ════════════════════════════════════════════
 with tab7:
-    st.markdown("### 👤 Who Am I?")
+    st.markdown("### 👤 About Me")
     st.markdown("---")
     c1,c2 = st.columns([1,2])
     with c1:
@@ -2264,12 +2264,12 @@ with tab7:
     st.markdown("---")
     st.subheader("🏈 About Me")
     st.markdown("""
-[Placeholder — add your bio here. A couple of sentences about who you are, where you're from, and your interest in both the NFL and data science.]
+I'm a student from the UK with a strong interest in both the NFL and data science. I've always enjoyed analysing NFL player and game stats, and I've become increasingly interested in how data can be used to make accurate predictions in real life. I'm currently studying Data Science at Northeastern University, with the goal of pursuing a career as a data scientist.
 """)
 
     st.subheader("💡 Why I Built This")
     st.markdown("""
-[Placeholder — explain why you built the NFL Game Predictor. Your interest in data science, wanting to combine it with your passion for the NFL, your goal of becoming a data scientist.]
+I built the NFL Game Predictor as a way to put my data science skills into practice on something that I'm quite passionate about. I wanted to create a project that went beyond simply analysing historical statistics and instead used an ML Model to make predictions about future NFL games. Building this project has allowed me to apply what I've learned about Python, data analysis and machine learning into action. It has also given me the opportunity to experiment with different skills e.g. data cleaning, API integration, web development and explore the challenges involved in trying to predict something as unpredictable as the NFL. Ultimately, this project is both a demonstration of my data science skills and an ongoing project that I can continue to improve, as I learn more.
 """)
 
     st.subheader("🛠️ My Projects")
