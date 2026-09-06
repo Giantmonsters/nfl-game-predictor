@@ -1404,7 +1404,8 @@ with tab3:
         st.caption(f"Showing carried-forward rankings for Week {selected_week} — not yet saved. Edit and save below to publish this week's own rankings.")
 
     # ── Editing, tucked away rather than replacing the main view ──
-    with st.expander(f"✏️ Edit Week {selected_week} Rankings"):
+    show_editor = st.checkbox(f"✏️ Edit Week {selected_week} Rankings", key=f"show_editor_{selected_week}")
+    if show_editor:
         st.caption("Drag teams up or down to reorder — position in the list becomes the rank (top = #1). Then save.")
         sorted_for_edit = sorted(CURRENT_NFL_TEAMS, key=lambda t: current_ranks[t])
 
