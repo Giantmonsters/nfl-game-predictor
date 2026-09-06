@@ -848,6 +848,51 @@ def save_week_rankings(week, team_rank_dict):
     df = pd.concat([df, new_rows], ignore_index=True)
     df.to_csv(RANKINGS_FILE, index=False)
 
+WEEKLY_MODEL_FILE = "nflnerd_weekly_model_predictions.csv"
+WEEKLY_USER_PICKS_FILE = "nflnerd_weekly_user_picks.csv"
+
+def load_weekly_model_predictions():
+    import os
+    if os.path.exists(WEEKLY_MODEL_FILE):
+        return pd.read_csv(WEEKLY_MODEL_FILE)
+    return pd.DataFrame(columns=["week", "home_team", "away_team", "model_winner", "model_prob", "model_confidence", "saved_at"])
+
+def save_week_model_predictions(week, games):
+    """Snapshot the model's predictions for every game in this week, so they
+    can be reviewed later exactly as they were at save time — rather than
+    recomputed live, which could look inconsistent if team stats data is
+    ever updated. Upserts (overwrites) this week's rows."""
+    df = load_weekly_model_predictions()
+    df = df[df["week"] != week]
+    new_rows = pd.DataFrame([{
+        "week": week,
+        "home_team": g["home_mapped"], "away_team": g["away_mapped"],
+        "model_winner": g["winner"], "model_prob": f"{max(g['hp'], g['ap']):.1%}",
+        "model_confidence": g["conf"],
+        "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+    } for g in games])
+    df = pd.concat([df, new_rows], ignore_index=True)
+    df.to_csv(WEEKLY_MODEL_FILE, index=False)
+
+def load_weekly_user_picks():
+    import os
+    if os.path.exists(WEEKLY_USER_PICKS_FILE):
+        return pd.read_csv(WEEKLY_USER_PICKS_FILE)
+    return pd.DataFrame(columns=["week", "home_team", "away_team", "your_winner", "your_confidence", "saved_at"])
+
+def save_week_user_picks(week, picks):
+    """picks: dict of (home_team, away_team) -> (your_winner, your_confidence).
+    Upserts (overwrites) this week's rows."""
+    df = load_weekly_user_picks()
+    df = df[df["week"] != week]
+    new_rows = pd.DataFrame([{
+        "week": week, "home_team": home, "away_team": away,
+        "your_winner": winner, "your_confidence": conf,
+        "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+    } for (home, away), (winner, conf) in picks.items()])
+    df = pd.concat([df, new_rows], ignore_index=True)
+    df.to_csv(WEEKLY_USER_PICKS_FILE, index=False)
+
 def predict_game(model, scores, get_team_stats, home, away):
     h_wr,h_sc,h_co=get_team_stats(scores,home,2026)
     a_wr,a_sc,a_co=get_team_stats(scores,away,2026)
@@ -1242,17 +1287,6 @@ with tab2:
         if bye_teams:
             st.info(f"💤 **On a bye this week:** {', '.join(bye_teams)}")
 
-        # Load saved picks and match the most recent one per matchup, so we
-        # can show "your pick" alongside the model's prediction on each card.
-        picks_df = load_picks()
-        picks_lookup = {}
-        if not picks_df.empty:
-            for p in predictions:
-                matched = picks_df[(picks_df['home_team'] == p['home_mapped']) &
-                                    (picks_df['away_team'] == p['away_mapped'])]
-                if not matched.empty:
-                    picks_lookup[(p['home_mapped'], p['away_mapped'])] = matched.sort_values('timestamp').iloc[-1]
-
         if predictions:
             # Weekly highlights — based on the full week, not the filter below
             most_confident = max(predictions, key=lambda x: abs(x['hp']-x['ap']))
@@ -1270,10 +1304,15 @@ with tab2:
                 st.markdown(f"{closest['home_mapped']} vs {closest['away_mapped']}")
                 st.markdown(f"{closest['hp']:.1%} vs {closest['ap']:.1%}")
 
-            # How Did We Do This Week? — model vs your own picks, across all
-            # of this week's games that have actually finished (state=='post').
-            # Only shown once at least one game is final, so it stays silent
-            # for the whole pre-kickoff week.
+            # How Did We Do This Week? — compares the SAVED model snapshot and
+            # SAVED user picks for this week against actual final scores.
+            # Only meaningful once both have been saved at least once, and
+            # only shown once at least one game is final.
+            saved_model_df = load_weekly_model_predictions()
+            saved_user_df = load_weekly_user_picks()
+            week_model_saved = saved_model_df[saved_model_df["week"] == week_num] if not saved_model_df.empty else pd.DataFrame()
+            week_user_saved = saved_user_df[saved_user_df["week"] == week_num] if not saved_user_df.empty else pd.DataFrame()
+
             model_correct, model_total = 0, 0
             your_correct, your_total = 0, 0
             for p in predictions:
@@ -1286,31 +1325,34 @@ with tab2:
                 if h_score == a_score:
                     continue
                 actual = p['home_mapped'] if h_score > a_score else p['away_mapped']
-                model_total += 1
-                if p['winner'] == actual:
-                    model_correct += 1
-                pick_row = picks_lookup.get((p['home_mapped'], p['away_mapped']))
-                if pick_row is not None:
-                    your_total += 1
-                    if pick_row['your_winner'] == actual:
-                        your_correct += 1
 
-            if model_total > 0:
+                if not week_model_saved.empty:
+                    m = week_model_saved[(week_model_saved["home_team"] == p['home_mapped']) &
+                                          (week_model_saved["away_team"] == p['away_mapped'])]
+                    if not m.empty:
+                        model_total += 1
+                        if m.iloc[0]["model_winner"] == actual:
+                            model_correct += 1
+
+                if not week_user_saved.empty:
+                    u = week_user_saved[(week_user_saved["home_team"] == p['home_mapped']) &
+                                         (week_user_saved["away_team"] == p['away_mapped'])]
+                    if not u.empty:
+                        your_total += 1
+                        if u.iloc[0]["your_winner"] == actual:
+                            your_correct += 1
+
+            if model_total > 0 or your_total > 0:
                 st.markdown("---")
                 st.markdown("#### 🏆 How Did We Do This Week?")
+                st.caption("Based on your saved schedules below vs. actual final scores.")
                 c1, c2 = st.columns(2)
                 with c1:
-                    st.metric("NFLNerd Model", f"{model_correct}/{model_total}",
-                              help="Correct predictions out of this week's finished games.")
+                    st.metric("NFLNerd Model", f"{model_correct}/{model_total}" if model_total else "—")
                 with c2:
-                    if your_total > 0:
-                        st.metric("Your Picks", f"{your_correct}/{your_total}",
-                                  help="Correct picks out of this week's finished games you made a pick for.")
-                    else:
-                        st.metric("Your Picks", "—", help="You haven't made any picks for this week's finished games yet.")
+                    st.metric("Your Picks", f"{your_correct}/{your_total}" if your_total else "—")
 
             st.markdown("---")
-            st.markdown("#### 🏈 Game Predictions")
 
             fc1, fc2 = st.columns(2)
             with fc1:
@@ -1329,12 +1371,18 @@ with tab2:
             if not display_games:
                 st.info(f"No game found for {team_filter} this week — likely a bye week.")
 
+            # ══════════════════════════════════════
+            # SCHEDULE 1 — MODEL PREDICTIONS (read-only)
+            # ══════════════════════════════════════
+            st.markdown("---")
+            st.markdown("### 🤖 Model Predictions")
+            st.caption("The NFLNerd model's prediction for every game this week.")
+
             for g in display_games:
                 diff = abs(g['hp']-g['ap'])
                 conf_color = "#00C853" if diff>=0.15 else ("#FFB300" if diff>=0.07 else "#D50A0A")
                 home_logo = ESPN_LOGOS.get(g['home_mapped'],'')
                 away_logo = ESPN_LOGOS.get(g['away_mapped'],'')
-                game_key = f"{g['home_mapped']}_{g['away_mapped']}_{g.get('date','')}".replace(" ","_")
                 kickoff_str = format_kickoff(g.get('date',''))
                 state = g.get('state', 'pre')
 
@@ -1350,11 +1398,7 @@ with tab2:
                         st.markdown(f"<div style='text-align:center;color:#888;font-size:13px;margin-bottom:8px;'>{kickoff_str}{live_badge}</div>", unsafe_allow_html=True)
 
                     c1,c2,c3,c4,c5 = st.columns([2,1,1,1,2])
-
-                    # Once a game is live or final, show the real score instead of the
-                    # predicted probability — the prediction is no longer the interesting number.
                     show_live_score = state in ("in", "post") and g.get('home_score') is not None and g.get('away_score') is not None
-                    actual_winner = None
 
                     with c1:
                         if home_logo: st.image(home_logo, width=50)
@@ -1389,32 +1433,95 @@ with tab2:
                         else:
                             st.markdown(f"✈️ Away • {g['ap']:.1%}")
 
-                    pick_row = picks_lookup.get((g['home_mapped'], g['away_mapped']))
-                    if pick_row is not None:
-                        pick_winner = pick_row['your_winner']
-                        pick_conf = pick_row['your_confidence']
-                        if actual_winner:
-                            correct_icon = "✅" if pick_winner == actual_winner else "❌"
-                            st.markdown(f"<div style='text-align:center;font-size:12px;color:#aaa;margin-top:6px;'>🥊 Your Pick: {pick_winner} ({pick_conf}) {correct_icon}</div>", unsafe_allow_html=True)
-                        else:
-                            st.markdown(f"<div style='text-align:center;font-size:12px;color:#aaa;margin-top:6px;'>🥊 Your Pick: {pick_winner} ({pick_conf})</div>", unsafe_allow_html=True)
+                    st.markdown('</div>', unsafe_allow_html=True)
 
-                    with st.expander("🥊 Make Your Own Pick"):
-                        pc1, pc2 = st.columns(2)
-                        with pc1:
-                            your_winner = st.radio("Who do you think wins?", [g['home_mapped'], g['away_mapped']], key=f"your_winner_{game_key}")
-                        with pc2:
-                            your_confidence = st.radio("Your confidence", ["🔴 Low", "🟡 Medium", "🟢 High"], key=f"your_confidence_{game_key}")
-                        if st.session_state.get(f"pick_saved_{game_key}"):
-                            st.success(f"✅ Pick saved — {your_winner} ({your_confidence}). Change your selections above and save again to log a new pick.")
-                        if st.button("💾 Save My Pick", key=f"save_{game_key}", use_container_width=True):
-                            save_pick(g['home_mapped'], g['away_mapped'], g['winner'],
-                                      g['hp'] if g['winner']==g['home_mapped'] else g['ap'],
-                                      g['conf'], your_winner, your_confidence)
-                            st.session_state[f"pick_saved_{game_key}"] = True
-                            st.rerun()
+            if st.button("💾 Save This Week's Model Predictions", use_container_width=True, key="save_model_week"):
+                save_week_model_predictions(week_num, display_games)
+                st.success(f"Saved the model's predictions for Week {week_num}.")
+
+            # ══════════════════════════════════════
+            # SCHEDULE 2 — YOUR PREDICTIONS (editable)
+            # ══════════════════════════════════════
+            st.markdown("---")
+            st.markdown("### 🥊 Your Predictions")
+            st.caption("Pick a winner and confidence for every game, then save the whole week at once.")
+
+            your_week_picks = {}
+            for g in display_games:
+                home_logo = ESPN_LOGOS.get(g['home_mapped'],'')
+                away_logo = ESPN_LOGOS.get(g['away_mapped'],'')
+                kickoff_str = format_kickoff(g.get('date',''))
+                pick_key = f"{g['home_mapped']}_{g['away_mapped']}_{g.get('date','')}".replace(" ","_")
+
+                with st.container():
+                    st.markdown(f'<div class="match-card">', unsafe_allow_html=True)
+                    if kickoff_str:
+                        st.markdown(f"<div style='text-align:center;color:#888;font-size:13px;margin-bottom:8px;'>{kickoff_str}</div>", unsafe_allow_html=True)
+
+                    c1,c2,c3 = st.columns([2,1,2])
+                    with c1:
+                        if home_logo: st.image(home_logo, width=50)
+                        st.markdown(f"**🏠 {g['home_mapped']}**")
+                    with c2:
+                        st.markdown("<div style='text-align:center;padding-top:20px;color:#666;font-size:20px;'>VS</div>", unsafe_allow_html=True)
+                    with c3:
+                        if away_logo: st.image(away_logo, width=50)
+                        st.markdown(f"**✈️ {g['away_mapped']}**")
+
+                    pc1, pc2 = st.columns(2)
+                    with pc1:
+                        your_winner = st.radio("Who do you think wins?", [g['home_mapped'], g['away_mapped']],
+                                                key=f"weekly_your_winner_{pick_key}")
+                    with pc2:
+                        your_confidence = st.radio("Your confidence", ["🔴 Low", "🟡 Medium", "🟢 High"],
+                                                    key=f"weekly_your_conf_{pick_key}")
+                    your_week_picks[(g['home_mapped'], g['away_mapped'])] = (your_winner, your_confidence)
 
                     st.markdown('</div>', unsafe_allow_html=True)
+
+            if st.button("💾 Save My Predictions for This Week", use_container_width=True, key="save_user_week"):
+                save_week_user_picks(week_num, your_week_picks)
+                st.success(f"Saved your predictions for Week {week_num}.")
+
+        # ══════════════════════════════════════
+        # REVIEW SAVED WEEKS
+        # ══════════════════════════════════════
+        st.markdown("---")
+        st.markdown("### 📖 Review Saved Weeks")
+        st.caption("Look back at previously saved model predictions and your own picks for any week.")
+
+        saved_model_df = load_weekly_model_predictions()
+        saved_user_df = load_weekly_user_picks()
+        saved_weeks = sorted(set(
+            (saved_model_df["week"].unique().tolist() if not saved_model_df.empty else []) +
+            (saved_user_df["week"].unique().tolist() if not saved_user_df.empty else [])
+        ))
+
+        if not saved_weeks:
+            st.info("No weeks saved yet. Save a week's schedules above to review them here later.")
+        else:
+            review_week = st.selectbox("Select a week to review",
+                                        ["— Select a week —"] + [str(w) for w in saved_weeks],
+                                        key="review_week_selector")
+            if review_week != "— Select a week —":
+                review_week_num = int(review_week)
+                rc1, rc2 = st.columns(2)
+                with rc1:
+                    st.markdown(f"**🤖 Model Predictions — Week {review_week_num}**")
+                    m_view = saved_model_df[saved_model_df["week"] == review_week_num] if not saved_model_df.empty else pd.DataFrame()
+                    if m_view.empty:
+                        st.caption("Not saved for this week.")
+                    else:
+                        st.dataframe(m_view[["home_team","away_team","model_winner","model_prob","model_confidence"]],
+                                     use_container_width=True, hide_index=True)
+                with rc2:
+                    st.markdown(f"**🥊 Your Predictions — Week {review_week_num}**")
+                    u_view = saved_user_df[saved_user_df["week"] == review_week_num] if not saved_user_df.empty else pd.DataFrame()
+                    if u_view.empty:
+                        st.caption("Not saved for this week.")
+                    else:
+                        st.dataframe(u_view[["home_team","away_team","your_winner","your_confidence"]],
+                                     use_container_width=True, hide_index=True)
 
 # ════════════════════════════════════════════
 # TAB 3 — TEAM RANKINGS
