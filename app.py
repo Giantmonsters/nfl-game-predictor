@@ -1041,24 +1041,6 @@ with tab1:
             elif diff>=0.07: st.markdown(f'<span class="confidence-med">{conf}</span> — The model leans one way but it\'s not clear cut.', unsafe_allow_html=True)
             else: st.markdown(f'<span class="confidence-low">{conf}</span> — This is a very tight matchup. Could go either way.', unsafe_allow_html=True)
 
-            # Team standing — current division/conference position
-            st.markdown("---")
-            st.subheader("📊 Team Standing")
-            c1,c2 = st.columns(2)
-            home_standing = fetch_espn_team_standing(home_team)
-            away_standing = fetch_espn_team_standing(away_team)
-            with c1:
-                st.markdown(f"**🏠 {home_team}**")
-                st.markdown(home_standing if home_standing else "Standing unavailable right now.")
-            with c2:
-                st.markdown(f"**✈️ {away_team}**")
-                st.markdown(away_standing if away_standing else "Standing unavailable right now.")
-            if not home_standing and not away_standing:
-                with st.expander("🛠️ Debug: inspect raw ESPN response (team standing)"):
-                    st.caption("Shows every field ESPN's team endpoint returns, so the standing field can be found if it's named differently.")
-                    fetch_espn_team_standing.clear()
-                    fetch_espn_team_standing(home_team, debug=True)
-
             # Recent form — live from ESPN, falling back to historical CSV data if the API fails
             st.markdown("---")
             st.subheader("📅 Recent Form (Last 5 Games)")
@@ -1137,40 +1119,6 @@ with tab1:
                         st.markdown(f"{p['category']}: **{p['player']}**{pos} — {away_html}", unsafe_allow_html=True)
                 else:
                     st.caption("Player stats unavailable right now.")
-
-            # Injury report — current injuries for both teams
-            st.markdown("---")
-            st.subheader("🏥 Injury Report")
-            c1,c2 = st.columns(2)
-            home_injuries = fetch_espn_team_injuries(home_team)
-            away_injuries = fetch_espn_team_injuries(away_team)
-            with c1:
-                st.markdown(f"**🏠 {home_team}**")
-                if home_injuries:
-                    for inj in home_injuries[:8]:
-                        pos = f" ({inj['position']})" if inj['position'] else ""
-                        status = f" — {inj['status']}" if inj['status'] else ""
-                        st.markdown(f"**{inj['player']}**{pos}{status}")
-                        if inj['detail']:
-                            st.caption(inj['detail'])
-                else:
-                    st.caption("No injuries reported right now — this is likely because injury reports typically aren't published until practice starts in the week of a game.")
-            with c2:
-                st.markdown(f"**✈️ {away_team}**")
-                if away_injuries:
-                    for inj in away_injuries[:8]:
-                        pos = f" ({inj['position']})" if inj['position'] else ""
-                        status = f" — {inj['status']}" if inj['status'] else ""
-                        st.markdown(f"**{inj['player']}**{pos}{status}")
-                        if inj['detail']:
-                            st.caption(inj['detail'])
-                else:
-                    st.caption("No injuries reported right now — this is likely because injury reports typically aren't published until practice starts in the week of a game.")
-            if not home_injuries and not away_injuries:
-                with st.expander("🛠️ Debug: inspect raw ESPN response (injuries)"):
-                    st.caption("Shows ESPN's raw injuries response, so the parsing can be corrected if the shape doesn't match.")
-                    fetch_espn_team_injuries.clear()
-                    fetch_espn_team_injuries(home_team, debug=True)
 
 # ════════════════════════════════════════════
 # TAB 2 — THIS WEEK'S GAMES
