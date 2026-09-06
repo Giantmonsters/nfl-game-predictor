@@ -2256,7 +2256,7 @@ with tab7:
     st.markdown("---")
     c1,c2 = st.columns([1,2])
     with c1:
-        st.image("https://a.espncdn.com/i/teamlogos/nfl/500/nfl.png", width=120)
+        st.image("nflnerd_logo.png", width=120)
     with c2:
         st.markdown("## NFLNerd")
         st.markdown("*NFL analyst, data science student, and creator of the NFL Game Predictor.*")
@@ -2283,15 +2283,13 @@ The site you're on right now. A machine learning model trained on 35 years of NF
         st.markdown("""
 **🏈 NFL Fantasy Predictor App**
 A Flutter app for researching, drafting, and managing NFL fantasy football teams, backed by a live player data API.
-[Add your app link here]
+[Get it on Google Play](https://play.google.com/store/apps/details?id=com.mikailatif.fantasyfootballpredictor)
 """)
 
     st.subheader("📱 Follow NFLNerd")
-    c1,c2,c3,c4 = st.columns(4)
-    with c1: st.markdown("**YouTube**\n[Add link]")
-    with c2: st.markdown("**Instagram**\n[Add link]")
-    with c3: st.markdown("**TikTok**\n[Add link]")
-    with c4: st.markdown("**Twitter/X**\n[Add link]")
+    c1,c2 = st.columns(2)
+    with c1: st.markdown("**YouTube**\n\n[@officialnflnerd](https://youtube.com/@officialnflnerd?si=VqokYwwXCErPTtV-)")
+    with c2: st.markdown("**TikTok**\n\n[@thenflnerd2](https://www.tiktok.com/@thenflnerd2?is_from_webapp=1&sender_device=pc)")
 
 # ── Footer ───────────────────────────────────
 st.markdown("---")
@@ -2300,7 +2298,8 @@ st.markdown(f"""
     Built by <b style="color:#D50A0A;">NFLNerd</b> &nbsp;|&nbsp;
     Data: Kaggle spreadspoke_scores.csv (1990–2025) &nbsp;|&nbsp;
     Model accuracy: {accuracy:.1%} &nbsp;|&nbsp;
-    <a href="#" style="color:#D50A0A;">YouTube</a> &nbsp;|&nbsp;
-    <a href="#" style="color:#D50A0A;">Fantasy App</a>
+    <a href="https://youtube.com/@officialnflnerd?si=VqokYwwXCErPTtV-" style="color:#D50A0A;">YouTube</a> &nbsp;|&nbsp;
+    <a href="https://www.tiktok.com/@thenflnerd2?is_from_webapp=1&sender_device=pc" style="color:#D50A0A;">TikTok</a> &nbsp;|&nbsp;
+    <a href="https://play.google.com/store/apps/details?id=com.mikailatif.fantasyfootballpredictor" style="color:#D50A0A;">Fantasy App</a>
 </div>
 """, unsafe_allow_html=True)
