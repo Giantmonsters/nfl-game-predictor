@@ -1367,133 +1367,137 @@ with tab3:
     max_recorded_week = max(recorded_weeks) if recorded_weeks else 0
     suggested_week = min(18, max_recorded_week + 1) if max_recorded_week else 1
 
-    # Explicit stable key, with the suggested default only applied ONCE (on
-    # first load). Previously this used value=int(suggested_week) with no
-    # key — since suggested_week recalculates to a HIGHER number the moment
-    # you save a week's rankings (e.g. 1 -> 2 right after saving Week 1),
-    # Streamlit was re-initializing the widget with that new default on the
-    # very next rerun, silently jumping you to Week 2 right after saving
-    # Week 1 — which looked exactly like "can't edit Week 1 anymore."
+    # Explicit stable key so the widget doesn't get silently reset. Uses a
+    # placeholder option so nothing is selected by default (same pattern as
+    # the Predict tab's team dropdowns) — previously this auto-selected
+    # "next week after last saved," which kept landing on Week 7 after
+    # testing had saved several weeks ahead, and looked like a bug.
+    week_options = ["— Select a week —"] + [str(i) for i in range(1, 19)]
     if "rankings_week_selector" not in st.session_state:
-        st.session_state["rankings_week_selector"] = int(suggested_week)
-    selected_week = st.number_input("Select Week", min_value=1, max_value=18, step=1, key="rankings_week_selector")
+        st.session_state["rankings_week_selector"] = "— Select a week —"
+    selected_week_str = st.selectbox("Select Week", week_options, key="rankings_week_selector")
 
-    # Determine the ranks to show: this week's saved data if it exists,
-    # otherwise carry forward the most recent earlier week's ranks, otherwise
-    # bootstrap from the original Fox Sports starting point — so the full
-    # card view always has something sensible to display immediately,
-    # without requiring an edit+save first.
-    this_week_df = hist_df[hist_df["week"] == selected_week]
-    is_saved = not this_week_df.empty
-    if is_saved:
-        current_ranks = dict(zip(this_week_df["team"], this_week_df["rank"]))
+    if selected_week_str == "— Select a week —":
+        st.info("Select a week above to view or edit its rankings.")
     else:
-        earlier_weeks = [w for w in recorded_weeks if w < selected_week]
-        if earlier_weeks:
-            prev_df = hist_df[hist_df["week"] == max(earlier_weeks)]
-            current_ranks = dict(zip(prev_df["team"], prev_df["rank"]))
+        selected_week = int(selected_week_str)
+
+        # Determine the ranks to show: this week's saved data if it exists,
+        # otherwise carry forward the most recent earlier week's ranks, otherwise
+        # bootstrap from the original Fox Sports starting point — so the full
+        # card view always has something sensible to display immediately,
+        # without requiring an edit+save first.
+        this_week_df = hist_df[hist_df["week"] == selected_week]
+        is_saved = not this_week_df.empty
+        if is_saved:
+            current_ranks = dict(zip(this_week_df["team"], this_week_df["rank"]))
         else:
-            current_ranks = {t["team"]: t["rank"] for t in FOX_RANKINGS}
-    for team in CURRENT_NFL_TEAMS:
-        current_ranks.setdefault(team, 32)
-
-    # ── Editing, tucked away rather than replacing the main view ──
-    show_editor = st.checkbox(f"✏️ Edit Week {selected_week} Rankings", key=f"show_editor_{selected_week}")
-    if show_editor:
-        st.caption("Drag teams up or down to reorder — position in the list becomes the rank (top = #1). Then save.")
-        sorted_for_edit = sorted(CURRENT_NFL_TEAMS, key=lambda t: current_ranks[t])
-
-        rankings_drag_style = """
-        .sortable-container-body { background-color: #111; padding: 8px; }
-        .sortable-item, .sortable-item:hover {
-            background: linear-gradient(135deg, #1a1a1a, #111827);
-            border-left: 4px solid #D50A0A;
-            color: #f0f0f0;
-            font-family: 'Oswald', sans-serif;
-            font-size: 16px;
-            font-weight: 600;
-            padding: 12px 16px;
-            border-radius: 6px;
-            margin: 6px 0;
-        }
-        """
-        # save_version forces the drag widget to fully remount (fresh state,
-        # matching the latest saved order) every time this week is saved.
-        # Without this, the widget's internal state — which tracks items by
-        # their exact text — would keep showing/using the order from BEFORE
-        # the save, since a fixed key doesn't force a refresh on its own.
-        # This is also why drag items are now plain, stable team names only
-        # (previously they included the rank number and trend text, which
-        # changed after every save and broke the widget's internal tracking).
-        save_version = st.session_state.get(f"rank_save_version_{selected_week}", 0)
-        reordered = sort_items(sorted_for_edit, direction="vertical",
-                                custom_style=rankings_drag_style,
-                                key=f"rank_sort_{selected_week}_{save_version}")
-        edited_ranks = {team: i + 1 for i, team in enumerate(reordered)}
-        if st.button("💾 Save Week Rankings", use_container_width=True):
-            save_week_rankings(selected_week, edited_ranks)
-            st.session_state[f"rank_save_version_{selected_week}"] = save_version + 1
-            st.success(f"Saved rankings for Week {selected_week}.")
-            st.rerun()
-
-    st.markdown("---")
-
-    earlier_weeks = sorted([w for w in recorded_weeks if w < selected_week])
-    prev_ranks = {}
-    if earlier_weeks:
-        prev_df = hist_df[hist_df["week"] == max(earlier_weeks)]
-        prev_ranks = dict(zip(prev_df["team"], prev_df["rank"]))
-
-    # Weekly Movers — biggest riser and biggest faller vs the previous saved week
-    if prev_ranks:
-        deltas = {team: prev_ranks.get(team, current_ranks[team]) - current_ranks[team]
-                  for team in current_ranks}
-        riser = max(deltas, key=lambda t: deltas[t])
-        faller = min(deltas, key=lambda t: deltas[t])
-        st.markdown("#### ⚡ Weekly Movers")
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown("**🚀 Biggest Riser**")
-            if deltas[riser] > 0:
-                st.markdown(f"**{riser}** — #{prev_ranks.get(riser)} → #{current_ranks[riser]} (▲{deltas[riser]})")
+            earlier_weeks = [w for w in recorded_weeks if w < selected_week]
+            if earlier_weeks:
+                prev_df = hist_df[hist_df["week"] == max(earlier_weeks)]
+                current_ranks = dict(zip(prev_df["team"], prev_df["rank"]))
             else:
-                st.markdown("No team moved up this week.")
-        with c2:
-            st.markdown("**📉 Biggest Faller**")
-            if deltas[faller] < 0:
-                st.markdown(f"**{faller}** — #{prev_ranks.get(faller)} → #{current_ranks[faller]} (▼{abs(deltas[faller])})")
-            else:
-                st.markdown("No team moved down this week.")
+                current_ranks = {t["team"]: t["rank"] for t in FOX_RANKINGS}
+        for team in CURRENT_NFL_TEAMS:
+            current_ranks.setdefault(team, 32)
+
+        # ── Editing, tucked away rather than replacing the main view ──
+        show_editor = st.checkbox(f"✏️ Edit Week {selected_week} Rankings", key=f"show_editor_{selected_week}")
+        if show_editor:
+            st.caption("Drag teams up or down to reorder — position in the list becomes the rank (top = #1). Then save.")
+            sorted_for_edit = sorted(CURRENT_NFL_TEAMS, key=lambda t: current_ranks[t])
+
+            rankings_drag_style = """
+            .sortable-container-body { background-color: #111; padding: 8px; }
+            .sortable-item, .sortable-item:hover {
+                background: linear-gradient(135deg, #1a1a1a, #111827);
+                border-left: 4px solid #D50A0A;
+                color: #f0f0f0;
+                font-family: 'Oswald', sans-serif;
+                font-size: 16px;
+                font-weight: 600;
+                padding: 12px 16px;
+                border-radius: 6px;
+                margin: 6px 0;
+            }
+            """
+            # save_version forces the drag widget to fully remount (fresh state,
+            # matching the latest saved order) every time this week is saved.
+            # Without this, the widget's internal state — which tracks items by
+            # their exact text — would keep showing/using the order from BEFORE
+            # the save, since a fixed key doesn't force a refresh on its own.
+            # This is also why drag items are now plain, stable team names only
+            # (previously they included the rank number and trend text, which
+            # changed after every save and broke the widget's internal tracking).
+            save_version = st.session_state.get(f"rank_save_version_{selected_week}", 0)
+            reordered = sort_items(sorted_for_edit, direction="vertical",
+                                    custom_style=rankings_drag_style,
+                                    key=f"rank_sort_{selected_week}_{save_version}")
+            edited_ranks = {team: i + 1 for i, team in enumerate(reordered)}
+            if st.button("💾 Save Week Rankings", use_container_width=True):
+                save_week_rankings(selected_week, edited_ranks)
+                st.session_state[f"rank_save_version_{selected_week}"] = save_version + 1
+                st.success(f"Saved rankings for Week {selected_week}.")
+                st.rerun()
+
         st.markdown("---")
 
-    sorted_teams = sorted(current_ranks.items(), key=lambda x: x[1])
+        earlier_weeks = sorted([w for w in recorded_weeks if w < selected_week])
+        prev_ranks = {}
+        if earlier_weeks:
+            prev_df = hist_df[hist_df["week"] == max(earlier_weeks)]
+            prev_ranks = dict(zip(prev_df["team"], prev_df["rank"]))
 
-    for team, rank in sorted_teams:
-        prev = prev_ranks.get(team, rank)
-        diff_rank = prev - rank
-        if diff_rank > 0:
-            movement = f'<span class="movement-up">▲{diff_rank}</span>'
-        elif diff_rank < 0:
-            movement = f'<span class="movement-down">▼{abs(diff_rank)}</span>'
-        else:
-            movement = '<span class="movement-same">—</span>'
+        # Weekly Movers — biggest riser and biggest faller vs the previous saved week
+        if prev_ranks:
+            deltas = {team: prev_ranks.get(team, current_ranks[team]) - current_ranks[team]
+                      for team in current_ranks}
+            riser = max(deltas, key=lambda t: deltas[t])
+            faller = min(deltas, key=lambda t: deltas[t])
+            st.markdown("#### ⚡ Weekly Movers")
+            c1, c2 = st.columns(2)
+            with c1:
+                st.markdown("**🚀 Biggest Riser**")
+                if deltas[riser] > 0:
+                    st.markdown(f"**{riser}** — #{prev_ranks.get(riser)} → #{current_ranks[riser]} (▲{deltas[riser]})")
+                else:
+                    st.markdown("No team moved up this week.")
+            with c2:
+                st.markdown("**📉 Biggest Faller**")
+                if deltas[faller] < 0:
+                    st.markdown(f"**{faller}** — #{prev_ranks.get(faller)} → #{current_ranks[faller]} (▼{abs(deltas[faller])})")
+                else:
+                    st.markdown("No team moved down this week.")
+            st.markdown("---")
 
-        logo_url = ESPN_LOGOS.get(team, '')
-        logo_html = f'<img src="{logo_url}" width="40" style="margin-right:12px;vertical-align:middle;">' if logo_url else ''
-        # Simple last-week-vs-this-week comparison only — no full
-        # multi-week history list.
-        position_str = f"#{prev} → #{rank}" if team in prev_ranks else "No previous week recorded"
+        sorted_teams = sorted(current_ranks.items(), key=lambda x: x[1])
 
-        st.markdown(f"""
-<div class="team-ranking-card">
-    <div class="rank-number">#{rank}</div>
-    {logo_html}
-    <div style="flex:1;">
-        <div style="font-family:Oswald;font-size:17px;font-weight:600;color:white;">{team} {movement}</div>
-        <div style="font-size:12px;color:#888;margin-top:4px;">Position: {position_str}</div>
+        for team, rank in sorted_teams:
+            prev = prev_ranks.get(team, rank)
+            diff_rank = prev - rank
+            if diff_rank > 0:
+                movement = f'<span class="movement-up">▲{diff_rank}</span>'
+            elif diff_rank < 0:
+                movement = f'<span class="movement-down">▼{abs(diff_rank)}</span>'
+            else:
+                movement = '<span class="movement-same">—</span>'
+
+            logo_url = ESPN_LOGOS.get(team, '')
+            logo_html = f'<img src="{logo_url}" width="40" style="margin-right:12px;vertical-align:middle;">' if logo_url else ''
+            # Simple last-week-vs-this-week comparison only — no full
+            # multi-week history list.
+            position_str = f"#{prev} → #{rank}" if team in prev_ranks else "No previous week recorded"
+
+            st.markdown(f"""
+    <div class="team-ranking-card">
+        <div class="rank-number">#{rank}</div>
+        {logo_html}
+        <div style="flex:1;">
+            <div style="font-family:Oswald;font-size:17px;font-weight:600;color:white;">{team} {movement}</div>
+            <div style="font-size:12px;color:#888;margin-top:4px;">Position: {position_str}</div>
+        </div>
     </div>
-</div>
-""", unsafe_allow_html=True)
+    """, unsafe_allow_html=True)
 
 # ════════════════════════════════════════════
 # TAB 4 — PREDICTION HISTORY
