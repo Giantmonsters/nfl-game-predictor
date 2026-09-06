@@ -828,6 +828,33 @@ def save_pick(home_team, away_team, model_winner, model_prob, model_confidence, 
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
     df.to_csv(PICKS_FILE, index=False)
 
+RANKINGS_FILE = "nflnerd_rankings_history.csv"
+
+def load_rankings_history():
+    import os
+    if os.path.exists(RANKINGS_FILE):
+        return pd.read_csv(RANKINGS_FILE)
+    return pd.DataFrame(columns=["week", "team", "rank"])
+
+def save_week_rankings(week, team_rank_dict):
+    """Overwrite (upsert) this week's rankings — removes any existing rows
+    for this week first, then writes the new full set, so re-saving a week
+    replaces it rather than duplicating rows."""
+    df = load_rankings_history()
+    df = df[df["week"] != week]
+    new_rows = pd.DataFrame([{"week": week, "team": team, "rank": rank}
+                             for team, rank in team_rank_dict.items()])
+    df = pd.concat([df, new_rows], ignore_index=True)
+    df.to_csv(RANKINGS_FILE, index=False)
+
+def rank_to_tier(rank):
+    """Tier boundaries matching the original Fox Sports starting point:
+    ranks 1-4 Elite, 5-13 Contenders, 14-24 Middling, 25-32 Rebuilding."""
+    if rank <= 4: return "🔥 Elite"
+    elif rank <= 13: return "✅ Contenders"
+    elif rank <= 24: return "⚠️ Middling"
+    else: return "🔄 Rebuilding"
+
 def predict_game(model, scores, get_team_stats, home, away):
     h_wr,h_sc,h_co=get_team_stats(scores,home,2026)
     a_wr,a_sc,a_co=get_team_stats(scores,away,2026)
@@ -1344,48 +1371,131 @@ with tab2:
 # ════════════════════════════════════════════
 with tab3:
     st.markdown("### 🏆 NFLNerd Power Rankings")
-    st.markdown("*Updated weekly. Starting point: Fox Sports Power Rankings, July 28 2026.*")
 
-    st.markdown("""
-<div class="info-box">
-<b>📝 NFLNerd Take — Heading Into Training Camp 2026</b><br><br>
-The Los Angeles Rams are the talk of the offseason after a massive roster overhaul — some are already calling them 'The Dream Team.'
-The defending champion Seattle Seahawks slip to 4th with serious RB concerns after losing Kenneth Walker III.
-Meanwhile the AFC looks wide open: Baltimore, Denver, Buffalo and Cincinnati all have legitimate Super Bowl aspirations.
-At the bottom, the Jets, Dolphins and Cardinals look set for another long year.
-These rankings will be updated weekly throughout the season alongside my YouTube predictions.
-</div>
-""", unsafe_allow_html=True)
+    hist_df = load_rankings_history()
+    recorded_weeks = sorted(hist_df["week"].unique().tolist()) if not hist_df.empty else []
+    max_recorded_week = max(recorded_weeks) if recorded_weeks else 0
+    suggested_week = min(18, max_recorded_week + 1) if max_recorded_week else 1
 
-    tiers = ["🔥 Elite", "✅ Contenders", "⚠️ Middling", "🔄 Rebuilding"]
-    tier_colors = {"🔥 Elite":"#D50A0A","✅ Contenders":"#013369","⚠️ Middling":"#FFB300","🔄 Rebuilding":"#444"}
+    selected_week = st.number_input("Select Week", min_value=1, max_value=18, value=int(suggested_week), step=1)
 
-    for tier in tiers:
-        tier_teams = [t for t in FOX_RANKINGS if t['tier']==tier]
-        if not tier_teams: continue
-        color = tier_colors.get(tier,"#444")
-        st.markdown(f'<div class="tier-header" style="background:{color}20;color:{color};border-left:4px solid {color};">{tier}</div>', unsafe_allow_html=True)
+    # Determine the baseline ranks to show in the editor: this week's saved
+    # data if it exists, otherwise carry forward the most recent earlier
+    # week's ranks, otherwise bootstrap from the original Fox Sports starting
+    # point (Week 0, effectively) — so editing always starts from something
+    # sensible rather than blank.
+    this_week_df = hist_df[hist_df["week"] == selected_week]
+    if not this_week_df.empty:
+        base_ranks = dict(zip(this_week_df["team"], this_week_df["rank"]))
+    else:
+        earlier_weeks = [w for w in recorded_weeks if w < selected_week]
+        if earlier_weeks:
+            prev_df = hist_df[hist_df["week"] == max(earlier_weeks)]
+            base_ranks = dict(zip(prev_df["team"], prev_df["rank"]))
+        else:
+            base_ranks = {t["team"]: t["rank"] for t in FOX_RANKINGS}
 
-        for t in tier_teams:
-            prev = t.get('prev', t['rank'])
-            diff_rank = prev - t['rank']
-            if diff_rank > 0:
-                movement = f'<span class="movement-up">▲{diff_rank}</span>'
-            elif diff_rank < 0:
-                movement = f'<span class="movement-down">▼{abs(diff_rank)}</span>'
-            else:
-                movement = '<span class="movement-same">—</span>'
+    for team in CURRENT_NFL_TEAMS:
+        base_ranks.setdefault(team, 32)
 
-            logo_url = ESPN_LOGOS.get(t['team'],'')
-            logo_html = f'<img src="{logo_url}" width="40" style="margin-right:12px;vertical-align:middle;">' if logo_url else ''
+    edit_df = pd.DataFrame(
+        [{"Team": team, "Rank": int(base_ranks[team])} for team in CURRENT_NFL_TEAMS]
+    ).sort_values("Rank").reset_index(drop=True)
 
-            st.markdown(f"""
+    st.markdown(f"#### ✏️ Edit Week {selected_week} Rankings")
+    st.caption("Edit the Rank column for any team, then save. Saving a week you've already saved overwrites it.")
+    edited_df = st.data_editor(
+        edit_df, hide_index=True, use_container_width=True,
+        num_rows="fixed", key=f"rank_editor_{selected_week}",
+        column_config={"Rank": st.column_config.NumberColumn(min_value=1, max_value=32, step=1)}
+    )
+
+    if st.button("💾 Save Week Rankings", use_container_width=True):
+        save_week_rankings(selected_week, dict(zip(edited_df["Team"], edited_df["Rank"])))
+        st.success(f"Saved rankings for Week {selected_week}.")
+        st.rerun()
+
+    st.markdown("---")
+
+    hist_df = load_rankings_history()
+    this_week_df = hist_df[hist_df["week"] == selected_week]
+
+    if this_week_df.empty:
+        st.info("No rankings saved for this week yet. Edit above and click Save to publish them.")
+    else:
+        current_ranks = dict(zip(this_week_df["team"], this_week_df["rank"]))
+        earlier_weeks = sorted([w for w in hist_df["week"].unique() if w < selected_week])
+        prev_ranks = {}
+        if earlier_weeks:
+            prev_df = hist_df[hist_df["week"] == max(earlier_weeks)]
+            prev_ranks = dict(zip(prev_df["team"], prev_df["rank"]))
+
+        # Weekly Movers — biggest riser and biggest faller vs the previous saved week
+        if prev_ranks:
+            deltas = {team: prev_ranks.get(team, current_ranks[team]) - current_ranks[team]
+                      for team in current_ranks}
+            riser = max(deltas, key=lambda t: deltas[t])
+            faller = min(deltas, key=lambda t: deltas[t])
+            st.markdown("#### ⚡ Weekly Movers")
+            c1, c2 = st.columns(2)
+            with c1:
+                st.markdown("**🚀 Biggest Riser**")
+                if deltas[riser] > 0:
+                    st.markdown(f"**{riser}** — #{prev_ranks.get(riser)} → #{current_ranks[riser]} (▲{deltas[riser]})")
+                else:
+                    st.markdown("No team moved up this week.")
+            with c2:
+                st.markdown("**📉 Biggest Faller**")
+                if deltas[faller] < 0:
+                    st.markdown(f"**{faller}** — #{prev_ranks.get(faller)} → #{current_ranks[faller]} (▼{abs(deltas[faller])})")
+                else:
+                    st.markdown("No team moved down this week.")
+            st.markdown("---")
+
+        # Full rank history per team, up to and including the selected week —
+        # this is the week-by-week trend indicator.
+        weeks_up_to_selected = sorted([w for w in hist_df["week"].unique() if w <= selected_week])
+        history_by_team = {}
+        for team in CURRENT_NFL_TEAMS:
+            seq = []
+            for w in weeks_up_to_selected:
+                wk_df = hist_df[hist_df["week"] == w]
+                match = wk_df[wk_df["team"] == team]
+                if not match.empty:
+                    seq.append(int(match.iloc[0]["rank"]))
+            history_by_team[team] = seq
+
+        tier_colors = {"🔥 Elite":"#D50A0A","✅ Contenders":"#013369","⚠️ Middling":"#FFB300","🔄 Rebuilding":"#444"}
+        sorted_teams = sorted(current_ranks.items(), key=lambda x: x[1])
+
+        for tier in ["🔥 Elite", "✅ Contenders", "⚠️ Middling", "🔄 Rebuilding"]:
+            tier_teams = [(team, rank) for team, rank in sorted_teams if rank_to_tier(rank) == tier]
+            if not tier_teams:
+                continue
+            color = tier_colors[tier]
+            st.markdown(f'<div class="tier-header" style="background:{color}20;color:{color};border-left:4px solid {color};">{tier}</div>', unsafe_allow_html=True)
+
+            for team, rank in tier_teams:
+                prev = prev_ranks.get(team, rank)
+                diff_rank = prev - rank
+                if diff_rank > 0:
+                    movement = f'<span class="movement-up">▲{diff_rank}</span>'
+                elif diff_rank < 0:
+                    movement = f'<span class="movement-down">▼{abs(diff_rank)}</span>'
+                else:
+                    movement = '<span class="movement-same">—</span>'
+
+                logo_url = ESPN_LOGOS.get(team, '')
+                logo_html = f'<img src="{logo_url}" width="40" style="margin-right:12px;vertical-align:middle;">' if logo_url else ''
+                trend_str = " → ".join(str(r) for r in history_by_team.get(team, [])) or "—"
+
+                st.markdown(f"""
 <div class="team-ranking-card">
-    <div class="rank-number">#{t['rank']}</div>
+    <div class="rank-number">#{rank}</div>
     {logo_html}
     <div style="flex:1;">
-        <div style="font-family:Oswald;font-size:17px;font-weight:600;color:white;">{t['team']} {movement}</div>
-        <div style="font-size:13px;color:#aaa;margin-top:4px;">{t['comment']}</div>
+        <div style="font-family:Oswald;font-size:17px;font-weight:600;color:white;">{team} {movement}</div>
+        <div style="font-size:12px;color:#888;margin-top:4px;">Trend: {trend_str}</div>
     </div>
 </div>
 """, unsafe_allow_html=True)
