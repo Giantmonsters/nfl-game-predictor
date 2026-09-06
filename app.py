@@ -1404,23 +1404,8 @@ with tab3:
 
     # ── Editing, tucked away rather than replacing the main view ──
     with st.expander(f"✏️ Edit Week {selected_week} Rankings"):
-        st.caption("Drag teams up or down to reorder — position in the list becomes the rank (top = #1). Then save. "
-                   "(Note: this drag library only supports plain text rows, not full logo cards — the rank number "
-                   "shown here is from before you started dragging and won't live-update until you save.)")
+        st.caption("Drag teams up or down to reorder — position in the list becomes the rank (top = #1). Then save.")
         sorted_for_edit = sorted(CURRENT_NFL_TEAMS, key=lambda t: current_ranks[t])
-
-        weeks_before_edit = sorted([w for w in recorded_weeks if w <= selected_week])
-        def _trend_label(team):
-            seq = []
-            for w in weeks_before_edit:
-                wk_df = hist_df[hist_df["week"] == w]
-                m = wk_df[wk_df["team"] == team]
-                if not m.empty:
-                    seq.append(int(m.iloc[0]["rank"]))
-            return " → ".join(str(r) for r in seq) if seq else "no history yet"
-
-        drag_labels = [f"#{current_ranks[t]:>2}   {t}   (trend: {_trend_label(t)})" for t in sorted_for_edit]
-        label_to_team = dict(zip(drag_labels, sorted_for_edit))
 
         rankings_drag_style = """
         .sortable-container-body { background-color: #111; padding: 8px; }
@@ -1436,13 +1421,22 @@ with tab3:
             margin: 6px 0;
         }
         """
-        reordered_labels = sort_items(drag_labels, direction="vertical",
-                                       custom_style=rankings_drag_style,
-                                       key=f"rank_sort_{selected_week}")
-        reordered = [label_to_team[lbl] for lbl in reordered_labels]
+        # save_version forces the drag widget to fully remount (fresh state,
+        # matching the latest saved order) every time this week is saved.
+        # Without this, the widget's internal state — which tracks items by
+        # their exact text — would keep showing/using the order from BEFORE
+        # the save, since a fixed key doesn't force a refresh on its own.
+        # This is also why drag items are now plain, stable team names only
+        # (previously they included the rank number and trend text, which
+        # changed after every save and broke the widget's internal tracking).
+        save_version = st.session_state.get(f"rank_save_version_{selected_week}", 0)
+        reordered = sort_items(sorted_for_edit, direction="vertical",
+                                custom_style=rankings_drag_style,
+                                key=f"rank_sort_{selected_week}_{save_version}")
         edited_ranks = {team: i + 1 for i, team in enumerate(reordered)}
         if st.button("💾 Save Week Rankings", use_container_width=True):
             save_week_rankings(selected_week, edited_ranks)
+            st.session_state[f"rank_save_version_{selected_week}"] = save_version + 1
             st.success(f"Saved rankings for Week {selected_week}.")
             st.rerun()
 
@@ -1476,19 +1470,6 @@ with tab3:
                 st.markdown("No team moved down this week.")
         st.markdown("---")
 
-    # Full rank history per team, up to and including the selected week —
-    # this is the week-by-week trend indicator.
-    weeks_up_to_selected = sorted([w for w in recorded_weeks if w <= selected_week])
-    history_by_team = {}
-    for team in CURRENT_NFL_TEAMS:
-        seq = []
-        for w in weeks_up_to_selected:
-            wk_df = hist_df[hist_df["week"] == w]
-            match = wk_df[wk_df["team"] == team]
-            if not match.empty:
-                seq.append(int(match.iloc[0]["rank"]))
-        history_by_team[team] = seq
-
     tier_colors = {"🔥 Elite":"#D50A0A","✅ Contenders":"#013369","⚠️ Middling":"#FFB300","🔄 Rebuilding":"#444"}
     sorted_teams = sorted(current_ranks.items(), key=lambda x: x[1])
 
@@ -1511,7 +1492,9 @@ with tab3:
 
             logo_url = ESPN_LOGOS.get(team, '')
             logo_html = f'<img src="{logo_url}" width="40" style="margin-right:12px;vertical-align:middle;">' if logo_url else ''
-            trend_str = " → ".join(str(r) for r in history_by_team.get(team, [])) or "—"
+            # Simple last-week-vs-this-week comparison only — no full
+            # multi-week history list.
+            position_str = f"#{prev} → #{rank}" if team in prev_ranks else "No previous week recorded"
 
             st.markdown(f"""
 <div class="team-ranking-card">
@@ -1519,7 +1502,7 @@ with tab3:
     {logo_html}
     <div style="flex:1;">
         <div style="font-family:Oswald;font-size:17px;font-weight:600;color:white;">{team} {movement}</div>
-        <div style="font-size:12px;color:#888;margin-top:4px;">Trend: {trend_str}</div>
+        <div style="font-size:12px;color:#888;margin-top:4px;">Position: {position_str}</div>
     </div>
 </div>
 """, unsafe_allow_html=True)
