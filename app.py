@@ -808,27 +808,6 @@ def get_head_to_head(scores,t1,t2):
             else: w2+=1
     return w1,w2,len(h2h)
 
-PICKS_FILE = "nflnerd_picks.csv"
-
-def load_picks():
-    import os
-    if os.path.exists(PICKS_FILE):
-        return pd.read_csv(PICKS_FILE)
-    return pd.DataFrame(columns=["timestamp","home_team","away_team","model_winner","model_prob","model_confidence","your_winner","your_confidence","agree"])
-
-def save_pick(home_team, away_team, model_winner, model_prob, model_confidence, your_winner, your_confidence):
-    df = load_picks()
-    new_row = {
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "home_team": home_team, "away_team": away_team,
-        "model_winner": model_winner, "model_prob": f"{model_prob:.1%}",
-        "model_confidence": model_confidence,
-        "your_winner": your_winner, "your_confidence": your_confidence,
-        "agree": "Yes" if your_winner == model_winner else "No"
-    }
-    df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-    df.to_csv(PICKS_FILE, index=False)
-
 RANKINGS_FILE = "nflnerd_rankings_history.csv"
 
 def load_rankings_history():
@@ -1192,22 +1171,6 @@ with tab1:
                     st.caption("Shows ESPN's raw injuries response, so the parsing can be corrected if the shape doesn't match.")
                     fetch_espn_team_injuries.clear()
                     fetch_espn_team_injuries(home_team, debug=True)
-
-            st.markdown("---")
-            st.subheader("🥊 Your NFLNerd Pick")
-            st.markdown("Don't agree with the model? Set your own pick below, then click Save when you're ready.")
-            c1, c2 = st.columns(2)
-            with c1:
-                your_winner = st.radio("Who do you think wins?", [home_team, away_team], key="your_winner_radio")
-            with c2:
-                your_confidence = st.radio("Your confidence", ["🔴 Low", "🟡 Medium", "🟢 High"], key="your_confidence_radio")
-
-            if st.session_state.get('pick_saved'):
-                st.success(f"✅ Pick saved — {your_winner} ({your_confidence}). Change your selections above and click Save again to log a new pick.")
-            if st.button("💾 Save My Pick", use_container_width=True):
-                save_pick(home_team, away_team, winner, hp if winner==home_team else ap, conf, your_winner, your_confidence)
-                st.session_state['pick_saved'] = True
-                st.rerun()
 
 # ════════════════════════════════════════════
 # TAB 2 — THIS WEEK'S GAMES
@@ -1695,7 +1658,7 @@ with tab4:
     st.markdown("""
 The NFL Game Predictor is a tool that predicts the outcome of any NFL matchup.
 You select the two teams, and the model returns each team's probability of winning.
-Predictions are based on each team's historical performance data, going back to 1990.
+Predictions are based on each team's historical data, going back to 1990.
 """)
 
     st.markdown("---")
