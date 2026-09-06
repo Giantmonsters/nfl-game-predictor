@@ -1367,6 +1367,14 @@ with tab3:
     max_recorded_week = max(recorded_weeks) if recorded_weeks else 0
     suggested_week = min(18, max_recorded_week + 1) if max_recorded_week else 1
 
+    if not hist_df.empty:
+        st.download_button(
+            "⬇️ Download Rankings History",
+            data=hist_df.sort_values(["week", "rank"]).to_csv(index=False),
+            file_name="nflnerd_rankings_history.csv",
+            mime="text/csv",
+        )
+
     # Explicit stable key so the widget doesn't get silently reset. Uses a
     # placeholder option so nothing is selected by default (same pattern as
     # the Predict tab's team dropdowns) — previously this auto-selected
@@ -1400,6 +1408,15 @@ with tab3:
                 current_ranks = {t["team"]: t["rank"] for t in FOX_RANKINGS}
         for team in CURRENT_NFL_TEAMS:
             current_ranks.setdefault(team, 32)
+
+        st.markdown(f"#### 🏈 Week {selected_week} Rankings" + ("" if is_saved else " *(not yet saved)*"))
+
+        if is_saved:
+            if st.button("🗑️ Clear this week's rankings", key=f"clear_week_{selected_week}"):
+                hist_df = hist_df[hist_df["week"] != selected_week]
+                hist_df.to_csv(RANKINGS_FILE, index=False)
+                st.success(f"Cleared saved rankings for Week {selected_week}.")
+                st.rerun()
 
         # ── Editing, tucked away rather than replacing the main view ──
         show_editor = st.checkbox(f"✏️ Edit Week {selected_week} Rankings", key=f"show_editor_{selected_week}")
