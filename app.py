@@ -9,6 +9,7 @@ import plotly.graph_objects as go
 import numpy as np
 import requests
 import re
+from streamlit_sortables import sort_items
 from datetime import datetime, timedelta
 
 # ── Page config ──────────────────────────────
@@ -1403,17 +1404,10 @@ with tab3:
 
     # ── Editing, tucked away rather than replacing the main view ──
     with st.expander(f"✏️ Edit Week {selected_week} Rankings"):
-        st.caption("Adjust any team's rank, then save. Saving a week you've already saved overwrites it.")
-        edited_ranks = {}
+        st.caption("Drag teams up or down to reorder — position in the list becomes the rank (top = #1). Then save.")
         sorted_for_edit = sorted(CURRENT_NFL_TEAMS, key=lambda t: current_ranks[t])
-        cols = st.columns(4)
-        for i, team in enumerate(sorted_for_edit):
-            with cols[i % 4]:
-                edited_ranks[team] = st.number_input(
-                    team, min_value=1, max_value=32, step=1,
-                    value=int(current_ranks[team]),
-                    key=f"rank_input_{selected_week}_{team}"
-                )
+        reordered = sort_items(sorted_for_edit, direction="vertical", key=f"rank_sort_{selected_week}")
+        edited_ranks = {team: i + 1 for i, team in enumerate(reordered)}
         if st.button("💾 Save Week Rankings", use_container_width=True):
             save_week_rankings(selected_week, edited_ranks)
             st.success(f"Saved rankings for Week {selected_week}.")
