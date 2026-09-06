@@ -848,14 +848,6 @@ def save_week_rankings(week, team_rank_dict):
     df = pd.concat([df, new_rows], ignore_index=True)
     df.to_csv(RANKINGS_FILE, index=False)
 
-def rank_to_tier(rank):
-    """Tier boundaries matching the original Fox Sports starting point:
-    ranks 1-4 Elite, 5-13 Contenders, 14-24 Middling, 25-32 Rebuilding."""
-    if rank <= 4: return "🔥 Elite"
-    elif rank <= 13: return "✅ Contenders"
-    elif rank <= 24: return "⚠️ Middling"
-    else: return "🔄 Rebuilding"
-
 def predict_game(model, scores, get_team_stats, home, away):
     h_wr,h_sc,h_co=get_team_stats(scores,home,2026)
     a_wr,a_sc,a_co=get_team_stats(scores,away,2026)
@@ -1378,7 +1370,16 @@ with tab3:
     max_recorded_week = max(recorded_weeks) if recorded_weeks else 0
     suggested_week = min(18, max_recorded_week + 1) if max_recorded_week else 1
 
-    selected_week = st.number_input("Select Week", min_value=1, max_value=18, value=int(suggested_week), step=1)
+    # Explicit stable key, with the suggested default only applied ONCE (on
+    # first load). Previously this used value=int(suggested_week) with no
+    # key — since suggested_week recalculates to a HIGHER number the moment
+    # you save a week's rankings (e.g. 1 -> 2 right after saving Week 1),
+    # Streamlit was re-initializing the widget with that new default on the
+    # very next rerun, silently jumping you to Week 2 right after saving
+    # Week 1 — which looked exactly like "can't edit Week 1 anymore."
+    if "rankings_week_selector" not in st.session_state:
+        st.session_state["rankings_week_selector"] = int(suggested_week)
+    selected_week = st.number_input("Select Week", min_value=1, max_value=18, step=1, key="rankings_week_selector")
 
     # Determine the ranks to show: this week's saved data if it exists,
     # otherwise carry forward the most recent earlier week's ranks, otherwise
@@ -1470,33 +1471,25 @@ with tab3:
                 st.markdown("No team moved down this week.")
         st.markdown("---")
 
-    tier_colors = {"🔥 Elite":"#D50A0A","✅ Contenders":"#013369","⚠️ Middling":"#FFB300","🔄 Rebuilding":"#444"}
     sorted_teams = sorted(current_ranks.items(), key=lambda x: x[1])
 
-    for tier in ["🔥 Elite", "✅ Contenders", "⚠️ Middling", "🔄 Rebuilding"]:
-        tier_teams = [(team, rank) for team, rank in sorted_teams if rank_to_tier(rank) == tier]
-        if not tier_teams:
-            continue
-        color = tier_colors[tier]
-        st.markdown(f'<div class="tier-header" style="background:{color}20;color:{color};border-left:4px solid {color};">{tier}</div>', unsafe_allow_html=True)
+    for team, rank in sorted_teams:
+        prev = prev_ranks.get(team, rank)
+        diff_rank = prev - rank
+        if diff_rank > 0:
+            movement = f'<span class="movement-up">▲{diff_rank}</span>'
+        elif diff_rank < 0:
+            movement = f'<span class="movement-down">▼{abs(diff_rank)}</span>'
+        else:
+            movement = '<span class="movement-same">—</span>'
 
-        for team, rank in tier_teams:
-            prev = prev_ranks.get(team, rank)
-            diff_rank = prev - rank
-            if diff_rank > 0:
-                movement = f'<span class="movement-up">▲{diff_rank}</span>'
-            elif diff_rank < 0:
-                movement = f'<span class="movement-down">▼{abs(diff_rank)}</span>'
-            else:
-                movement = '<span class="movement-same">—</span>'
+        logo_url = ESPN_LOGOS.get(team, '')
+        logo_html = f'<img src="{logo_url}" width="40" style="margin-right:12px;vertical-align:middle;">' if logo_url else ''
+        # Simple last-week-vs-this-week comparison only — no full
+        # multi-week history list.
+        position_str = f"#{prev} → #{rank}" if team in prev_ranks else "No previous week recorded"
 
-            logo_url = ESPN_LOGOS.get(team, '')
-            logo_html = f'<img src="{logo_url}" width="40" style="margin-right:12px;vertical-align:middle;">' if logo_url else ''
-            # Simple last-week-vs-this-week comparison only — no full
-            # multi-week history list.
-            position_str = f"#{prev} → #{rank}" if team in prev_ranks else "No previous week recorded"
-
-            st.markdown(f"""
+        st.markdown(f"""
 <div class="team-ranking-card">
     <div class="rank-number">#{rank}</div>
     {logo_html}
