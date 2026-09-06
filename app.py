@@ -1404,9 +1404,42 @@ with tab3:
 
     # ── Editing, tucked away rather than replacing the main view ──
     with st.expander(f"✏️ Edit Week {selected_week} Rankings"):
-        st.caption("Drag teams up or down to reorder — position in the list becomes the rank (top = #1). Then save.")
+        st.caption("Drag teams up or down to reorder — position in the list becomes the rank (top = #1). Then save. "
+                   "(Note: this drag library only supports plain text rows, not full logo cards — the rank number "
+                   "shown here is from before you started dragging and won't live-update until you save.)")
         sorted_for_edit = sorted(CURRENT_NFL_TEAMS, key=lambda t: current_ranks[t])
-        reordered = sort_items(sorted_for_edit, direction="vertical", key=f"rank_sort_{selected_week}")
+
+        weeks_before_edit = sorted([w for w in recorded_weeks if w <= selected_week])
+        def _trend_label(team):
+            seq = []
+            for w in weeks_before_edit:
+                wk_df = hist_df[hist_df["week"] == w]
+                m = wk_df[wk_df["team"] == team]
+                if not m.empty:
+                    seq.append(int(m.iloc[0]["rank"]))
+            return " → ".join(str(r) for r in seq) if seq else "no history yet"
+
+        drag_labels = [f"#{current_ranks[t]:>2}   {t}   (trend: {_trend_label(t)})" for t in sorted_for_edit]
+        label_to_team = dict(zip(drag_labels, sorted_for_edit))
+
+        rankings_drag_style = """
+        .sortable-container-body { background-color: #111; padding: 8px; }
+        .sortable-item, .sortable-item:hover {
+            background: linear-gradient(135deg, #1a1a1a, #111827);
+            border-left: 4px solid #D50A0A;
+            color: #f0f0f0;
+            font-family: 'Oswald', sans-serif;
+            font-size: 16px;
+            font-weight: 600;
+            padding: 12px 16px;
+            border-radius: 6px;
+            margin: 6px 0;
+        }
+        """
+        reordered_labels = sort_items(drag_labels, direction="vertical",
+                                       custom_style=rankings_drag_style,
+                                       key=f"rank_sort_{selected_week}")
+        reordered = [label_to_team[lbl] for lbl in reordered_labels]
         edited_ranks = {team: i + 1 for i, team in enumerate(reordered)}
         if st.button("💾 Save Week Rankings", use_container_width=True):
             save_week_rankings(selected_week, edited_ranks)
