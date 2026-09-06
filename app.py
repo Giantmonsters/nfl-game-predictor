@@ -970,24 +970,21 @@ with tab1:
     st.markdown("---")
 
     c1,c2 = st.columns(2)
+    team_options = ["— Select a team —"] + all_teams
     with c1:
-        logo_url = ESPN_LOGOS.get('Kansas City Chiefs','')
-        if logo_url: st.image(logo_url, width=60)
         st.subheader("🏠 Home Team")
-        home_team = st.selectbox("Select home team", all_teams,
-            index=all_teams.index("Kansas City Chiefs") if "Kansas City Chiefs" in all_teams else 0)
+        home_team = st.selectbox("Select home team", team_options, index=0)
         if ESPN_LOGOS.get(home_team): st.image(ESPN_LOGOS[home_team], width=50)
     with c2:
-        logo_url = ESPN_LOGOS.get('Philadelphia Eagles','')
-        if logo_url: st.image(logo_url, width=60)
         st.subheader("✈️ Away Team")
-        away_team = st.selectbox("Select away team", all_teams,
-            index=all_teams.index("Philadelphia Eagles") if "Philadelphia Eagles" in all_teams else 1)
+        away_team = st.selectbox("Select away team", team_options, index=0)
         if ESPN_LOGOS.get(away_team): st.image(ESPN_LOGOS[away_team], width=50)
 
     st.markdown("---")
     if st.button("🔮 Predict Game Outcome", use_container_width=True, key="predict_btn"):
-        if home_team==away_team:
+        if home_team == "— Select a team —" or away_team == "— Select a team —":
+            st.error("Please select both a home team and an away team!")
+        elif home_team==away_team:
             st.error("Please select two different teams!")
         else:
             hp,ap,conf,winner,h_wr,h_sc,h_co,a_wr,a_sc,a_co = predict_game(predictor_model,predictor_scores,predictor_get_team_stats,home_team,away_team)
