@@ -1,5 +1,7 @@
 import streamlit as st
 import pandas as pd
+import pickle
+import os
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
@@ -578,8 +580,49 @@ def fetch_espn_team_season_stats(team_name, debug=False):
 
 
 # ── Model ────────────────────────────────────
+def get_team_stats(df, team, before_season):
+    """Module-level (not nested) so it's directly available for both the
+    live app and the standalone cache-building script, and so it doesn't
+    need to be pickled — only the trained model/stats artifacts around it
+    do. Logic is UNCHANGED from the original nested version."""
+    hg = df[(df['team_home']==team)&(df['schedule_season']<before_season)]
+    ag = df[(df['team_away']==team)&(df['schedule_season']<before_season)]
+    hw = (hg['score_home']>hg['score_away']).sum()
+    aw = (ag['score_away']>ag['score_home']).sum()
+    total = len(hg)+len(ag)
+    if total==0: return 0.5,22.0,20.0
+    return (hw+aw)/total, pd.concat([hg['score_home'],ag['score_away']]).mean(), pd.concat([hg['score_away'],ag['score_home']]).mean()
+
+MODEL_CACHE_FILE = "model_cache.pkl"
+
 @st.cache_resource
 def load_model():
+    # If a pre-built cache exists (generated once locally via
+    # build_model_cache.py and committed to the repo), load it instantly
+    # instead of retraining from scratch on every cold start. This is what
+    # makes cold starts fast — training 3 models on 9,000+ games is the slow
+    # part, not anything Streamlit-specific. Falls back to full training if
+    # no cache file is present OR if loading it fails for any reason (e.g. a
+    # package version mismatch between the machine that built the cache and
+    # the one running the app) — a broken cache should never crash the app,
+    # it should just silently fall back to the slower-but-reliable path.
+    if os.path.exists(MODEL_CACHE_FILE):
+        try:
+            print("[TIMING] model_cache.pkl found — attempting to load it")
+            with open(MODEL_CACHE_FILE, "rb") as f:
+                cached = pickle.load(f)
+            print("[TIMING] model_cache.pkl loaded successfully")
+            return (cached["lr"], cached["scores"], get_team_stats,
+                    cached["xgb_acc"], cached["lr_acc"], cached["rf_acc"],
+                    cached["xgb_f1"], cached["lr_f1"], cached["rf_f1"],
+                    cached["season_acc_df"], cached["cm"], cached["fpr"], cached["tpr"], cached["roc_auc"],
+                    cached["conf_data"], cached["feature_names"], cached["importances"],
+                    cached["X_test"], cached["y_test"], cached["period_hw"], cached["lr"])
+        except Exception as ex:
+            print(f"[TIMING] model_cache.pkl FAILED to load ({ex}) — falling back to full training")
+    else:
+        print("[TIMING] No model_cache.pkl found — training from scratch")
+
     scores = pd.read_csv('data/spreadspoke_scores.csv')
     scores = scores[(scores['score_home']>0)|(scores['score_away']>0)]
     renames = {
@@ -595,15 +638,6 @@ def load_model():
     scores['schedule_date'] = pd.to_datetime(scores['schedule_date'])
     scores = scores.sort_values('schedule_season')
     scores = scores[scores['schedule_season']>=1990].copy()
-
-    def get_team_stats(df, team, before_season):
-        hg = df[(df['team_home']==team)&(df['schedule_season']<before_season)]
-        ag = df[(df['team_away']==team)&(df['schedule_season']<before_season)]
-        hw = (hg['score_home']>hg['score_away']).sum()
-        aw = (ag['score_away']>ag['score_home']).sum()
-        total = len(hg)+len(ag)
-        if total==0: return 0.5,22.0,20.0
-        return (hw+aw)/total, pd.concat([hg['score_home'],ag['score_away']]).mean(), pd.concat([hg['score_away'],ag['score_home']]).mean()
 
     game_data=[]
     for _,row in scores.iterrows():
@@ -679,9 +713,28 @@ def load_model():
     period_hw=scores_32.groupby('period',observed=True)['home_win'].agg(home_win_rate='mean',games='count',home_wins='sum').reset_index()
     period_hw.columns=['Period','Home Win Rate','Games','Home Wins']
 
+    season_acc_df = pd.DataFrame(season_acc)
+
+    # Save this run's results to disk, so the NEXT cold start (even without
+    # a pre-committed cache) can load instantly instead of retraining. Best
+    # effort — if the filesystem isn't writable (e.g. some deployment
+    # setups), this silently does nothing rather than breaking the app.
+    try:
+        with open(MODEL_CACHE_FILE, "wb") as f:
+            pickle.dump({
+                "lr": lr, "scores": scores,
+                "xgb_acc": xgb_acc, "lr_acc": lr_acc, "rf_acc": rf_acc,
+                "xgb_f1": xgb_f1, "lr_f1": lr_f1, "rf_f1": rf_f1,
+                "season_acc_df": season_acc_df, "cm": cm, "fpr": fpr, "tpr": tpr, "roc_auc": roc_auc,
+                "conf_data": conf_data, "feature_names": feature_names, "importances": importances,
+                "X_test": X_test, "y_test": y_test, "period_hw": period_hw,
+            }, f)
+    except Exception:
+        pass
+
     return (lr,scores,get_team_stats,xgb_acc,lr_acc,rf_acc,
             xgb_f1,lr_f1,rf_f1,
-            pd.DataFrame(season_acc),cm,fpr,tpr,roc_auc,
+            season_acc_df,cm,fpr,tpr,roc_auc,
             conf_data,feature_names,importances,X_test,y_test,period_hw,lr)
 
 def get_recent_form(scores,team,n=5):
@@ -780,8 +833,54 @@ def predict_game(model, scores, get_team_stats, home, away):
 # advantage (e.g. Cardinals vs Rams). The Data Science tab intentionally
 # continues to describe and use the original all-time-only model, since
 # that content was independently finalized and verified against it.
+def get_team_stats_blended(df, team, before_season, recent_weight=0.3):
+    """Module-level (not nested) — same reasoning as get_team_stats above.
+    Logic is UNCHANGED from the original nested version."""
+    hg = df[(df['team_home']==team)&(df['schedule_season']<before_season)]
+    ag = df[(df['team_away']==team)&(df['schedule_season']<before_season)]
+    hw = (hg['score_home']>hg['score_away']).sum()
+    aw = (ag['score_away']>ag['score_home']).sum()
+    total = len(hg)+len(ag)
+    if total==0: return 0.5,22.0,20.0
+    all_time_wr = (hw+aw)/total
+    all_time_scored   = pd.concat([hg['score_home'],ag['score_away']]).mean()
+    all_time_conceded = pd.concat([hg['score_away'],ag['score_home']]).mean()
+
+    recent_season = before_season - 1
+    hg_r = hg[hg['schedule_season']==recent_season]
+    ag_r = ag[ag['schedule_season']==recent_season]
+    total_r = len(hg_r)+len(ag_r)
+    if total_r==0:
+        return all_time_wr, all_time_scored, all_time_conceded
+
+    hw_r = (hg_r['score_home']>hg_r['score_away']).sum()
+    aw_r = (ag_r['score_away']>ag_r['score_home']).sum()
+    recent_wr = (hw_r+aw_r)/total_r
+    recent_scored   = pd.concat([hg_r['score_home'],ag_r['score_away']]).mean()
+    recent_conceded = pd.concat([hg_r['score_away'],ag_r['score_home']]).mean()
+
+    blended_wr       = (1-recent_weight)*all_time_wr + recent_weight*recent_wr
+    blended_scored   = (1-recent_weight)*all_time_scored + recent_weight*recent_scored
+    blended_conceded = (1-recent_weight)*all_time_conceded + recent_weight*recent_conceded
+    return blended_wr, blended_scored, blended_conceded
+
+PREDICTOR_CACHE_FILE = "predictor_cache.pkl"
+
 @st.cache_resource
 def load_predictor_model():
+    # Same cache-first approach as load_model() above — see its comments.
+    if os.path.exists(PREDICTOR_CACHE_FILE):
+        try:
+            print("[TIMING] predictor_cache.pkl found — attempting to load it")
+            with open(PREDICTOR_CACHE_FILE, "rb") as f:
+                cached = pickle.load(f)
+            print("[TIMING] predictor_cache.pkl loaded successfully")
+            return cached["lr_p"], cached["scores_p"], get_team_stats_blended
+        except Exception as ex:
+            print(f"[TIMING] predictor_cache.pkl FAILED to load ({ex}) — falling back to full training")
+    else:
+        print("[TIMING] No predictor_cache.pkl found — training from scratch")
+
     scores_p = pd.read_csv('data/spreadspoke_scores.csv')
     scores_p = scores_p[(scores_p['score_home']>0)|(scores_p['score_away']>0)]
     renames = {
@@ -797,35 +896,6 @@ def load_predictor_model():
     scores_p['schedule_date'] = pd.to_datetime(scores_p['schedule_date'])
     scores_p = scores_p.sort_values('schedule_season')
     scores_p = scores_p[scores_p['schedule_season']>=1990].copy()
-
-    def get_team_stats_blended(df, team, before_season, recent_weight=0.3):
-        hg = df[(df['team_home']==team)&(df['schedule_season']<before_season)]
-        ag = df[(df['team_away']==team)&(df['schedule_season']<before_season)]
-        hw = (hg['score_home']>hg['score_away']).sum()
-        aw = (ag['score_away']>ag['score_home']).sum()
-        total = len(hg)+len(ag)
-        if total==0: return 0.5,22.0,20.0
-        all_time_wr = (hw+aw)/total
-        all_time_scored   = pd.concat([hg['score_home'],ag['score_away']]).mean()
-        all_time_conceded = pd.concat([hg['score_away'],ag['score_home']]).mean()
-
-        recent_season = before_season - 1
-        hg_r = hg[hg['schedule_season']==recent_season]
-        ag_r = ag[ag['schedule_season']==recent_season]
-        total_r = len(hg_r)+len(ag_r)
-        if total_r==0:
-            return all_time_wr, all_time_scored, all_time_conceded
-
-        hw_r = (hg_r['score_home']>hg_r['score_away']).sum()
-        aw_r = (ag_r['score_away']>ag_r['score_home']).sum()
-        recent_wr = (hw_r+aw_r)/total_r
-        recent_scored   = pd.concat([hg_r['score_home'],ag_r['score_away']]).mean()
-        recent_conceded = pd.concat([hg_r['score_away'],ag_r['score_home']]).mean()
-
-        blended_wr       = (1-recent_weight)*all_time_wr + recent_weight*recent_wr
-        blended_scored   = (1-recent_weight)*all_time_scored + recent_weight*recent_scored
-        blended_conceded = (1-recent_weight)*all_time_conceded + recent_weight*recent_conceded
-        return blended_wr, blended_scored, blended_conceded
 
     game_data=[]
     for _,row in scores_p.iterrows():
@@ -843,11 +913,21 @@ def load_predictor_model():
     lr_p = LogisticRegression(random_state=42, max_iter=1000)
     lr_p.fit(X_p, y_p)
 
+    try:
+        with open(PREDICTOR_CACHE_FILE, "wb") as f:
+            pickle.dump({"lr_p": lr_p, "scores_p": scores_p}, f)
+    except Exception:
+        pass
+
     return lr_p, scores_p, get_team_stats_blended
 
 # ── Load ─────────────────────────────────────
 st.markdown('<p class="nflnerd-brand">🏈 NFLNerd</p>', unsafe_allow_html=True)
 st.title("NFL Game Predictor")
+
+import time as _time
+_load_start = _time.time()
+print(f"[TIMING] Starting model load at {_time.strftime('%H:%M:%S')}")
 
 with st.spinner("Loading model..."):
     (model,scores,get_team_stats,xgb_acc,lr_acc,rf_acc,
@@ -855,7 +935,9 @@ with st.spinner("Loading model..."):
      season_acc_df,cm,fpr,tpr,roc_auc,
      conf_data,feature_names,importances,
      X_test,y_test,period_hw,lr) = load_model()
+    print(f"[TIMING] load_model() finished after {_time.time()-_load_start:.1f}s")
     predictor_model, predictor_scores, predictor_get_team_stats = load_predictor_model()
+    print(f"[TIMING] load_predictor_model() finished after {_time.time()-_load_start:.1f}s total")
 
 accuracy = lr_acc
 all_teams = sorted(CURRENT_NFL_TEAMS)
